@@ -50,6 +50,8 @@ namespace YellowSubmarine
         readonly Metric fileAclRequests;
         readonly Metric directoryPathRequests;
         readonly Metric directoryInspectionRequestsDurationMs;
+        readonly Metric eventHubBatchSize;
+        readonly Metric directoryPathItems;
 
         public Submersible(TelemetryConfiguration telemetryConfig) 
         {
@@ -60,6 +62,8 @@ namespace YellowSubmarine
             fileAclRequests = telemetryClient.GetMetric("YSFileAclRequests");
             directoryPathRequests = telemetryClient.GetMetric("YSDirectoryPathRequests");
             directoryInspectionRequestsDurationMs = telemetryClient.GetMetric("YSDirectoryInspectionRequestsDurationMs");
+            eventHubBatchSize = telemetryClient.GetMetric("YSEventBatchSize");
+            directoryPathItems = telemetryClient.GetMetric("YSDirectoryPathItems");
         }
 
         
@@ -93,6 +97,7 @@ namespace YellowSubmarine
             watch.Start();
             var exceptions = new List<Exception>();
             log.LogDebug($"Processing a batch of {events.Count()} requests");
+            eventHubBatchSize.TrackValue(events.Count());
             foreach (EventData eventData in events)
             {
                 try
@@ -183,6 +188,7 @@ namespace YellowSubmarine
                 }
                 i++;
             }
+            directoryPathItems.TrackValue(i);
         }
     }
 }
