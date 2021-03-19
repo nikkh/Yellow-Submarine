@@ -1,10 +1,10 @@
-name: Results Processor
+name: Yellow Submarine
 on: 
   workflow_dispatch:
    
 jobs:
   job1:
-    name: Deploy Results Processor Application
+    name: Deploy Yellow Submarine Application
     runs-on: windows-latest
     steps:
     - uses: actions/checkout@v2
