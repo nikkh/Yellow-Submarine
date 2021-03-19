@@ -26,7 +26,6 @@ namespace YellowSubmarine
 
             var appInsightsKey = Environment.GetEnvironmentVariable("APPINSIGHTS_INSTRUMENTATIONKEY"); 
             var aiOptions = new ApplicationInsightsServiceOptions();
-            aiOptions.EnableAdaptiveSampling = false;
             aiOptions.InstrumentationKey = appInsightsKey;
             builder.Services.AddApplicationInsightsTelemetry(aiOptions);
         }

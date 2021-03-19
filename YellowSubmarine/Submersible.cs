@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -29,29 +30,36 @@ namespace YellowSubmarine
         static readonly string dataLakeSasToken = Environment.GetEnvironmentVariable("DataLakeSasToken");
         static readonly DataLakeServiceClient serviceClient = new DataLakeServiceClient(serviceUri, new AzureSasCredential(dataLakeSasToken));
         static readonly DataLakeFileSystemClient fileSystemClient = serviceClient.GetFileSystemClient(fileSystemName);
-        static readonly EventHubsConnectionStringBuilder csb = new EventHubsConnectionStringBuilder(Environment.GetEnvironmentVariable("EventHubConnection"));
+       
         static readonly string requestsPath = Environment.GetEnvironmentVariable("RequestsHub");
         static readonly string resultsPath = Environment.GetEnvironmentVariable("ResultsHub");
-        readonly EventHubClient inspectionRequestClient;
-        readonly EventHubClient inspectionResultClient;
+        static readonly EventHubClient inspectionRequestClient =
+            EventHubClient.CreateFromConnectionString(
+                Environment.GetEnvironmentVariable("EventHubConnectionPrefix") +
+                Environment.GetEnvironmentVariable("RequestsHub") +
+                Environment.GetEnvironmentVariable("EventHubConnectionSuffix"));
+        static readonly EventHubClient inspectionResultClient =
+            EventHubClient.CreateFromConnectionString(
+                Environment.GetEnvironmentVariable("EventHubConnectionPrefix") +
+                Environment.GetEnvironmentVariable("ResultsHub") +
+                Environment.GetEnvironmentVariable("EventHubConnectionSuffix"));
+
         readonly Metric deepDives;
         readonly Metric directoryInspectionRequests;
         readonly Metric directoryAclRequests;
         readonly Metric fileAclRequests;
         readonly Metric directoryPathRequests;
+        readonly Metric directoryInspectionRequestsDurationMs;
 
         public Submersible(TelemetryConfiguration telemetryConfig) 
         {
             telemetryClient = new TelemetryClient(telemetryConfig);
-            deepDives = telemetryClient.GetMetric("DeepDives");
-            directoryInspectionRequests = telemetryClient.GetMetric("DirectoryInspectionRequests");
-            directoryAclRequests = telemetryClient.GetMetric("DirectoryAclRequests");
-            fileAclRequests = telemetryClient.GetMetric("FileAclRequests");
-            directoryPathRequests = telemetryClient.GetMetric("DirectoryPathRequests");
-            csb.EntityPath = resultsPath;
-            inspectionResultClient = EventHubClient.CreateFromConnectionString(csb.ToString());
-            csb.EntityPath = requestsPath;
-            inspectionRequestClient = EventHubClient.CreateFromConnectionString(csb.ToString());
+            deepDives = telemetryClient.GetMetric("YSDeepDives");
+            directoryInspectionRequests = telemetryClient.GetMetric("YSDirectoryInspectionRequests");
+            directoryAclRequests = telemetryClient.GetMetric("YSDirectoryAclRequests");
+            fileAclRequests = telemetryClient.GetMetric("YSFileAclRequests");
+            directoryPathRequests = telemetryClient.GetMetric("YSDirectoryPathRequests");
+            directoryInspectionRequestsDurationMs = telemetryClient.GetMetric("YSDirectoryInspectionRequestsDurationMs");
         }
 
         
@@ -70,27 +78,28 @@ namespace YellowSubmarine
             log.LogInformation($"Data Lake Exploration Trigger was received for path {parameters.StartPath}");
             telemetryClient.TrackEvent($"Deep Dive Request triggered by Http POST", new Dictionary<string, string>() { { "directory", startPath } });
             deepDives.TrackValue(1);
-            csb.EntityPath = requestsPath;
-            var inspectionRequestClient = EventHubClient.CreateFromConnectionString(csb.ToString());
             string requestId = Guid.NewGuid().ToString();
+            string tMessage = $"A deep dive into data lake {serviceUri} was requested. Exploration will start at path {parameters.StartPath}.  The tracking Id for your results is {requestId}";
+            log.LogInformation(tMessage);
             EventData ed = new EventData(Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(new DirectoryExplorationRequest { StartPath = startPath, RequestId=requestId })));
             await inspectionRequestClient.SendAsync(ed);
-            
-            string responseMessage =  $"A deep dive into data lake {serviceUri} was requested. Exploration will start at path {parameters.StartPath}.  The tracking Id for your results is {requestId}";
-            return new OkObjectResult(responseMessage);
+            return new OkObjectResult(tMessage);
         }
 
         [FunctionName("Explore")]
         public async Task Explore([EventHubTrigger("%RequestsHub%", Connection = "EventHubConnection")] EventData[] events, ILogger log)
         {
+            Stopwatch watch = new Stopwatch();
+            watch.Start();
             var exceptions = new List<Exception>();
-            // create a batch
+            log.LogDebug($"Processing a batch of {events.Count()} requests");
             foreach (EventData eventData in events)
             {
                 try
                 {
                     string messageBody = Encoding.UTF8.GetString(eventData.Body.Array, eventData.Body.Offset, eventData.Body.Count);
                     DirectoryExplorationRequest dir = JsonConvert.DeserializeObject<DirectoryExplorationRequest>(messageBody);
+                    log.LogDebug($"Event Request Id: {dir.RequestId}, Path={dir.StartPath}");
                     await InspectDirectory(dir, log);
                     await Task.Yield();
                 }
@@ -107,32 +116,41 @@ namespace YellowSubmarine
 
             if (exceptions.Count == 1)
                 throw exceptions.Single();
+            watch.Stop();
+            directoryInspectionRequestsDurationMs.TrackValue(watch.ElapsedMilliseconds);
         }
 
         private async Task InspectDirectory(DirectoryExplorationRequest dir, ILogger log)
         {
             directoryInspectionRequests.TrackValue(1);
-            
             // Get ACL for this directory
             var directoryClient = fileSystemClient.GetDirectoryClient(dir.StartPath);
+            var directoryProps = await directoryClient.GetPropertiesAsync();
             var aclResult = await directoryClient.GetAccessControlAsync();
             directoryAclRequests.TrackValue(1);
             var directoryResult = new ExplorationResult {
                 Type = InspectionResultType.Directory,
                 Path = dir.StartPath,
                 Acls = JsonConvert.SerializeObject(aclResult.Value.AccessControlList),
-                RequestId = dir.RequestId
+                RequestId = dir.RequestId, 
+                ETag  = directoryProps.Value.ETag.ToString(), 
+                ModifiedDateTime = directoryProps.Value.LastModified.UtcDateTime.ToString()
             };
 
             // Send result for this directory
             EventData directoryEvent = new EventData(Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(directoryResult)));
             await inspectionResultClient.SendAsync(directoryEvent);
+            log.LogDebug($"Results for Path={dir.StartPath} sent to {resultsPath}");
+
 
             // Get directory contents and loop through them
             AsyncPageable<PathItem> pathItems = directoryClient.GetPathsAsync(false);
+            log.LogDebug($"Directory contents retrieved for {dir.StartPath}");
             directoryPathRequests.TrackValue(1);
+            int i = 1;
             await foreach (var pathItem in pathItems)
             {
+                log.LogDebug($"# {i}: {pathItem.Name} (IsDirectory={pathItem.IsDirectory})");
                 // if it's a directory, just send a message to get it processed.
                 if ((bool)pathItem.IsDirectory)
                 {
@@ -142,6 +160,7 @@ namespace YellowSubmarine
                             RequestId=dir.RequestId }))
                         );
                     await inspectionRequestClient.SendAsync(directoryEvent);
+                    log.LogDebug($"# {i}: {pathItem.Name}.  A request was queued to process this directory");
                 }
                 // if it's a file, get its acls
                 else
@@ -154,11 +173,15 @@ namespace YellowSubmarine
                         Type = InspectionResultType.File,
                         Path = pathItem.Name,
                         Acls = JsonConvert.SerializeObject(aclResult.Value.AccessControlList),
-                        RequestId = dir.RequestId
+                        RequestId = dir.RequestId,
+                        ETag = pathItem.ETag.ToString(),
+                        ModifiedDateTime = pathItem.LastModified.UtcDateTime.ToString()
                     };
                     EventData fileEvent = new EventData(Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(fileResult)));
                     await inspectionResultClient.SendAsync(fileEvent);
+                    log.LogDebug($"Results for File {fileResult.Path} sent to {resultsPath}");
                 }
+                i++;
             }
         }
     }

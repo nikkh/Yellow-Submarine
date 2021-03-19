@@ -8,13 +8,15 @@ namespace YellowSubmarine.Common
     {
         public ExplorationResult() 
         {
-            this.DateTime = DateTime.UtcNow;
+            this.ResultDateTime = DateTime.UtcNow;
         }
         public InspectionResultType Type { get; set; }
         public string Acls { get; set; }
         public string Path { get; set; }
         public string RequestId { get; set; }
-        public DateTime DateTime { get; }
+        public DateTime ResultDateTime { get; }
+        public string ETag { get; set; }
+        public string ModifiedDateTime { get; set; }
     }
 
     public enum InspectionResultType { Directory, File}
