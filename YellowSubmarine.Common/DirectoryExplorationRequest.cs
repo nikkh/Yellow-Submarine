@@ -2,7 +2,7 @@
 using System.Collections.Generic;
 using System.Text;
 
-namespace YellowSubmarine
+namespace YellowSubmarine.Common
 {
     public class DirectoryExplorationRequest
     {

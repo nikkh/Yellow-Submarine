@@ -5,6 +5,10 @@ VisualStudioVersion = 16.0.31105.61
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "YellowSubmarine", "YellowSubmarine\YellowSubmarine.csproj", "{831AC2AD-7A37-4E3D-ADF8-E4823C89EDEE}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "YellowSubmarineResultsProcessor", "YellowSubmarineResultsProcessor\YellowSubmarineResultsProcessor.csproj", "{4D4FB4FC-836D-44DE-987B-52F366154B6A}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "YellowSubmarine.Common", "YellowSubmarine.Common\YellowSubmarine.Common.csproj", "{97D57341-DB35-4E01-94D8-6A912E400F01}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -15,6 +19,14 @@ Global
 		{831AC2AD-7A37-4E3D-ADF8-E4823C89EDEE}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{831AC2AD-7A37-4E3D-ADF8-E4823C89EDEE}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{831AC2AD-7A37-4E3D-ADF8-E4823C89EDEE}.Release|Any CPU.Build.0 = Release|Any CPU
+		{4D4FB4FC-836D-44DE-987B-52F366154B6A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{4D4FB4FC-836D-44DE-987B-52F366154B6A}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{4D4FB4FC-836D-44DE-987B-52F366154B6A}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{4D4FB4FC-836D-44DE-987B-52F366154B6A}.Release|Any CPU.Build.0 = Release|Any CPU
+		{97D57341-DB35-4E01-94D8-6A912E400F01}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{97D57341-DB35-4E01-94D8-6A912E400F01}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{97D57341-DB35-4E01-94D8-6A912E400F01}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{97D57341-DB35-4E01-94D8-6A912E400F01}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

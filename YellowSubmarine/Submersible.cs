@@ -17,6 +17,7 @@ using Microsoft.Azure.WebJobs.Extensions.Http;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
+using YellowSubmarine.Common;
 
 namespace YellowSubmarine
 {
@@ -78,8 +79,8 @@ namespace YellowSubmarine
             return new OkObjectResult(responseMessage);
         }
 
-        [FunctionName("Inspect")]
-        public async Task Run([EventHubTrigger("%RequestsHub%", Connection = "EventHubConnection")] EventData[] events, ILogger log)
+        [FunctionName("Explore")]
+        public async Task Explore([EventHubTrigger("%RequestsHub%", Connection = "EventHubConnection")] EventData[] events, ILogger log)
         {
             var exceptions = new List<Exception>();
             // create a batch
