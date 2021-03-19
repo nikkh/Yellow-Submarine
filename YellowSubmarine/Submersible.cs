@@ -72,10 +72,11 @@ namespace YellowSubmarine
             deepDives.TrackValue(1);
             csb.EntityPath = requestsPath;
             var inspectionRequestClient = EventHubClient.CreateFromConnectionString(csb.ToString());
-            EventData ed = new EventData(Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(new DirectoryExplorationRequest { StartPath = startPath, RequestId=Guid.NewGuid().ToString() })));
+            string requestId = Guid.NewGuid().ToString();
+            EventData ed = new EventData(Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(new DirectoryExplorationRequest { StartPath = startPath, RequestId=requestId })));
             await inspectionRequestClient.SendAsync(ed);
             
-            string responseMessage =  $"A deep dive into data lake {serviceUri} was requested.  Exploration will start at path {parameters.StartPath}";
+            string responseMessage =  $"A deep dive into data lake {serviceUri} was requested. Exploration will start at path {parameters.StartPath}.  The tracking Id for your results is {requestId}";
             return new OkObjectResult(responseMessage);
         }
 
