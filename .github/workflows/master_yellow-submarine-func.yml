@@ -4,9 +4,6 @@
 name: Build and deploy dotnet core app to Azure Function App - yellow-submarine-func
 
 on:
-  push:
-    branches:
-      - master
   workflow_dispatch:
 
 env:
