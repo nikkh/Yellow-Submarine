@@ -35,14 +35,10 @@ namespace YellowSubmarine
         static readonly string resultsPath = Environment.GetEnvironmentVariable("ResultsHub");
         static readonly EventHubClient inspectionRequestClient =
             EventHubClient.CreateFromConnectionString(
-                Environment.GetEnvironmentVariable("EventHubConnectionPrefix") +
-                Environment.GetEnvironmentVariable("RequestsHub") +
-                Environment.GetEnvironmentVariable("EventHubConnectionSuffix"));
+                Environment.GetEnvironmentVariable("RequestsEventHubFullConnectionString");
         static readonly EventHubClient inspectionResultClient =
             EventHubClient.CreateFromConnectionString(
-                Environment.GetEnvironmentVariable("EventHubConnectionPrefix") +
-                Environment.GetEnvironmentVariable("ResultsHub") +
-                Environment.GetEnvironmentVariable("EventHubConnectionSuffix"));
+                Environment.GetEnvironmentVariable("ResultsEventHubFullConnectionString") ;
 
         readonly Metric deepDives;
         readonly Metric directoryInspectionRequests;
