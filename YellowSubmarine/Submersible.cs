@@ -35,10 +35,10 @@ namespace YellowSubmarine
         static readonly string resultsPath = Environment.GetEnvironmentVariable("ResultsHub");
         static readonly EventHubClient inspectionRequestClient =
             EventHubClient.CreateFromConnectionString(
-                Environment.GetEnvironmentVariable("RequestsEventHubFullConnectionString");
+                Environment.GetEnvironmentVariable("RequestsEventHubFullConnectionString"));
         static readonly EventHubClient inspectionResultClient =
             EventHubClient.CreateFromConnectionString(
-                Environment.GetEnvironmentVariable("ResultsEventHubFullConnectionString") ;
+                Environment.GetEnvironmentVariable("ResultsEventHubFullConnectionString"));
 
         readonly Metric deepDives;
         readonly Metric directoryInspectionRequests;
@@ -48,6 +48,7 @@ namespace YellowSubmarine
         readonly Metric directoryInspectionRequestsDurationMs;
         readonly Metric eventHubBatchSize;
         readonly Metric directoryPathItems;
+        readonly Metric eventDeserializationTimeinMs;
 
         public Submersible(TelemetryConfiguration telemetryConfig) 
         {
@@ -60,6 +61,7 @@ namespace YellowSubmarine
             directoryInspectionRequestsDurationMs = telemetryClient.GetMetric("YSDirectoryInspectionRequestsDurationMs");
             eventHubBatchSize = telemetryClient.GetMetric("YSEventBatchSize");
             directoryPathItems = telemetryClient.GetMetric("YSDirectoryPathItems");
+            eventDeserializationTimeinMs = telemetryClient.GetMetric("YSEventDeserializationTimeinMs");
         }
 
         
@@ -99,8 +101,12 @@ namespace YellowSubmarine
                 try
                 {
                     string messageBody = Encoding.UTF8.GetString(eventData.Body.Array, eventData.Body.Offset, eventData.Body.Count);
+                    var s = new Stopwatch();
+                    s.Start();
                     DirectoryExplorationRequest dir = JsonConvert.DeserializeObject<DirectoryExplorationRequest>(messageBody);
-                    log.LogDebug($"Event Request Id: {dir.RequestId}, Path={dir.StartPath}");
+                    s.Stop();
+                    eventDeserializationTimeinMs.TrackValue(s.ElapsedMilliseconds);
+                    log.LogDebug($"Event Request Id: {dir.RequestId}, Path={dir.StartPath} in {s.ElapsedMilliseconds} ms.");
                     await InspectDirectory(dir, log);
                     await Task.Yield();
                 }
