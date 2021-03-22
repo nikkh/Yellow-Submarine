@@ -28,6 +28,8 @@ namespace YellowSubmarine
         static readonly Uri serviceUri = new Uri(Environment.GetEnvironmentVariable("DataLakeUri"));
         static readonly string fileSystemName = Environment.GetEnvironmentVariable("FileSystemName");
         static readonly string dataLakeSasToken = Environment.GetEnvironmentVariable("DataLakeSasToken");
+        static readonly string defaultPageSize = Environment.GetEnvironmentVariable("PageSize");
+        readonly int pageSize;
         static readonly DataLakeServiceClient serviceClient = new DataLakeServiceClient(serviceUri, new AzureSasCredential(dataLakeSasToken));
         static readonly DataLakeFileSystemClient fileSystemClient = serviceClient.GetFileSystemClient(fileSystemName);
        
@@ -62,6 +64,14 @@ namespace YellowSubmarine
             eventHubBatchSize = telemetryClient.GetMetric("YSEventBatchSize");
             directoryPathItems = telemetryClient.GetMetric("YSDirectoryPathItems");
             eventDeserializationTimeinMs = telemetryClient.GetMetric("YSEventDeserializationTimeinMs");
+            if (!Int32.TryParse(defaultPageSize, out int ps))
+            {
+                pageSize = 5000;
+            }
+            else
+            {
+                pageSize = ps;
+            }
         }
 
         
@@ -154,43 +164,92 @@ namespace YellowSubmarine
             AsyncPageable<PathItem> pathItems = directoryClient.GetPathsAsync(false);
             log.LogDebug($"Directory contents retrieved for {dir.StartPath}");
             directoryPathRequests.TrackValue(1);
-            int i = 1;
-            await foreach (var pathItem in pathItems)
+            int i = 0;
+            int currentPage = dir.PageNumber;
+            // if we are supplied with a continuation token, use it.
+            // this will read the page after the one that generated this token.
+            IAsyncEnumerable<Page<PathItem>> pages;
+            if (string.IsNullOrEmpty(dir.ContinuationToken))
             {
-                log.LogDebug($"# {i}: {pathItem.Name} (IsDirectory={pathItem.IsDirectory})");
-                // if it's a directory, just send a message to get it processed.
-                if ((bool)pathItem.IsDirectory)
+                pages = pathItems.AsPages(null, pageSize);
+            }
+            else
+            {
+                pages = pathItems.AsPages(dir.ContinuationToken, pageSize);
+            }
+            EventDataBatch eventBatch = new EventDataBatch(pageSize * 1000);
+            await foreach (var page in pages)
+            {
+                currentPage++;
+                foreach (var pathItem in page.Values)
                 {
-                    directoryEvent = new EventData(Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(
-                        new DirectoryExplorationRequest { 
-                            StartPath = pathItem.Name, 
-                            RequestId=dir.RequestId }))
+                    
+                    // if it's a directory, just send a message to get it processed.
+                    if ((bool)pathItem.IsDirectory)
+                    {
+                        directoryEvent = new EventData(Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(
+                            new DirectoryExplorationRequest
+                            {
+                                StartPath = pathItem.Name,
+                                RequestId = dir.RequestId
+                            }))
                         );
-                    await inspectionRequestClient.SendAsync(directoryEvent);
-                    log.LogDebug($"# {i}: {pathItem.Name}.  A request was queued to process this directory");
+
+                        if (!eventBatch.TryAdd(directoryEvent)) throw new Exception("Maximum batch size of event hub batch exceeded!");
+
+                        // await inspectionRequestClient.SendAsync(directoryEvent);
+                        log.LogDebug($"# {i}: {pathItem.Name}.  A request was queued to process this directory");
+                    }
+                    // if it's a file, get its acls
+                    else
+                    {
+                        var fileClient = fileSystemClient.GetFileClient(pathItem.Name);
+                        aclResult = await fileClient.GetAccessControlAsync();
+                        fileAclRequests.TrackValue(1);
+                        var fileResult = new ExplorationResult
+                        {
+                            Type = InspectionResultType.File,
+                            Path = pathItem.Name,
+                            Acls = JsonConvert.SerializeObject(aclResult.Value.AccessControlList),
+                            RequestId = dir.RequestId,
+                            ETag = pathItem.ETag.ToString(),
+                            ModifiedDateTime = pathItem.LastModified.UtcDateTime.ToString()
+                        };
+                        EventData fileEvent = new EventData(Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(fileResult)));
+                        await inspectionResultClient.SendAsync(fileEvent);
+                        log.LogDebug($"Results for File {fileResult.Path} sent to {resultsPath}");
+                    }
+                    i++;
                 }
-                // if it's a file, get its acls
+                // if we get here we have processed a full page
+                // Send the batch (we might have processed only files - so check batcch has some contents and send if it does.
+                if (eventBatch.Count > 0) {
+                    log.LogInformation($"Sending a batch of {eventBatch.Count} messages to Event Hub {requestsPath}");
+                    await inspectionRequestClient.SendAsync(eventBatch); 
+                }
+
+                // if there is another page to come, place a record on queue to process it.
+                if (!string.IsNullOrEmpty(page.ContinuationToken))
+                {
+                    log.LogInformation($"Page {currentPage} has a continuation token {page.ContinuationToken} another request will be queued for the next page for {dir.StartPath}");
+                    directoryEvent = new EventData(Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(
+                    new DirectoryExplorationRequest
+                    {
+                        StartPath = dir.StartPath,
+                        RequestId = dir.RequestId,
+                        ContinuationToken = page.ContinuationToken,
+                        PageNumber = currentPage
+                    }))); ;
+                    await inspectionRequestClient.SendAsync(directoryEvent);
+                }
                 else
                 {
-                    var fileClient = fileSystemClient.GetFileClient(pathItem.Name);
-                    aclResult = await fileClient.GetAccessControlAsync();
-                    fileAclRequests.TrackValue(1);
-                    var fileResult = new ExplorationResult
-                    {
-                        Type = InspectionResultType.File,
-                        Path = pathItem.Name,
-                        Acls = JsonConvert.SerializeObject(aclResult.Value.AccessControlList),
-                        RequestId = dir.RequestId,
-                        ETag = pathItem.ETag.ToString(),
-                        ModifiedDateTime = pathItem.LastModified.UtcDateTime.ToString()
-                    };
-                    EventData fileEvent = new EventData(Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(fileResult)));
-                    await inspectionResultClient.SendAsync(fileEvent);
-                    log.LogDebug($"Results for File {fileResult.Path} sent to {resultsPath}");
+                    log.LogInformation($"Page {currentPage} doesnt have a continuation token.  Processing complete for {dir.StartPath}");
                 }
-                i++;
+
+                // We have processed this page and queued a request to process the next one - end execution
+                break;
             }
-            directoryPathItems.TrackValue(i);
         }
     }
 }
