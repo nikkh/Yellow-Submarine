@@ -18,15 +18,12 @@ namespace YellowSubmarineResultsProcessor
     public class Persistor
     {
         private readonly TelemetryClient telemetryClient;
-        private static readonly string outputContainerName = Environment.GetEnvironmentVariable("OutputStorageContainer");
         private static readonly CloudBlobClient blobClient = StorageAccount.NewFromConnectionString(Environment.GetEnvironmentVariable("OutputStorageConnection")).CreateCloudBlobClient();
-
         readonly Metric deepDiveResults;
-        readonly CloudBlobContainer resultContainer;
+        CloudBlobContainer resultContainer;
 
         public Persistor(TelemetryConfiguration telemetryConfig) 
         {
-            resultContainer = blobClient.GetContainerReference(outputContainerName);
             telemetryClient = new TelemetryClient(telemetryConfig);
             deepDiveResults = telemetryClient.GetMetric("DeepDiveResults");
         }
@@ -44,6 +41,7 @@ namespace YellowSubmarineResultsProcessor
                     deepDiveResults.TrackValue(1);
                     string messageBody = Encoding.UTF8.GetString(eventData.Body.Array, eventData.Body.Offset, eventData.Body.Count);
                     ExplorationResult result = JsonConvert.DeserializeObject<ExplorationResult>(messageBody);
+                    if (resultContainer == null) resultContainer = blobClient.GetContainerReference(result.RequestId);
                     string extension = "file";
                     if (result.Type == InspectionResultType.Directory) extension = "directory";
                     var blobName = $"{result.RequestId}-{result.Path.Replace('/', '-')}.{extension}";
