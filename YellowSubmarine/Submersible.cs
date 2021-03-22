@@ -25,6 +25,7 @@ namespace YellowSubmarine
     public class Submersible
     {
         private readonly TelemetryClient telemetryClient;
+        static readonly string drain = Environment.GetEnvironmentVariable("DRAIN").ToUpper();
         static readonly Uri serviceUri = new Uri(Environment.GetEnvironmentVariable("DataLakeUri"));
         static readonly string fileSystemName = Environment.GetEnvironmentVariable("FileSystemName");
         static readonly string dataLakeSasToken = Environment.GetEnvironmentVariable("DataLakeSasToken");
@@ -101,6 +102,10 @@ namespace YellowSubmarine
         [FunctionName("Explore")]
         public async Task Explore([EventHubTrigger("%RequestsHub%", Connection = "EventHubConnection")] EventData[] events, ILogger log)
         {
+            if (drain == "TRUE")
+            {
+                log.LogCritical($"Running in drain mode - function will exit");
+            }
             Stopwatch watch = new Stopwatch();
             watch.Start();
             var exceptions = new List<Exception>();
@@ -222,7 +227,7 @@ namespace YellowSubmarine
                     i++;
                 }
                 // if we get here we have processed a full page
-                // Send the batch (we might have processed only files - so check batcch has some contents and send if it does.
+                // Send the batch (we might have processed only files - so check batch has some contents and send if it does.
                 if (eventBatch.Count > 0) {
                     log.LogInformation($"Sending a batch of {eventBatch.Count} messages to Event Hub {requestsPath}");
                     await inspectionRequestClient.SendAsync(eventBatch); 
