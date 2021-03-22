@@ -105,6 +105,7 @@ namespace YellowSubmarine
             if (drain == "TRUE")
             {
                 log.LogCritical($"Running in drain mode - function will exit");
+                return;
             }
             Stopwatch watch = new Stopwatch();
             watch.Start();
