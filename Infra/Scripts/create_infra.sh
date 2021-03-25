@@ -37,7 +37,7 @@ resultsEventHubConnection=$(az eventhubs namespace  authorization-rule keys list
 ep="EntityPath=$resultsHub;SharedAccessKeyName"
 resultsEventHubFullConnectionString=$(echo $resultsEventHubConnection | sed s/\SharedAccessKeyName/"$ep"/)
 
-az eventhubs namespace create -g $resourceGroupName --name fileAclEventHubNamespace -l $location --sku Standard --enable-auto-inflate --maximum-throughput-units 20
+az eventhubs namespace create -g $resourceGroupName --name $fileAclEventHubNamespace -l $location --sku Standard --enable-auto-inflate --maximum-throughput-units 20
 fileAclEventHubConnection=$(az eventhubs namespace  authorization-rule keys list -g $resourceGroupName --namespace-name $fileAclEventHubNamespace  --name RootManageSharedAccessKey --query primaryConnectionString -o tsv)
 ep="EntityPath=$fileAclHub;SharedAccessKeyName"
 fileAclEventHubFullConnectionString=$(echo $fileAclEventHubConnection | sed s/\SharedAccessKeyName/"$ep"/)
