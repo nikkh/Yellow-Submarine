@@ -231,7 +231,10 @@ namespace YellowSubmarine
                                 ModifiedDateTime = pathItem.LastModified.UtcDateTime.ToString(),
                                 
                             };
-                            EventData fileAclEvent = new EventData(Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(fileResult)));
+                            
+                            var messageString = JsonConvert.SerializeObject(fileResult);
+                            log.LogInformation($"YYYY> MessageString is {messageString}");
+                            EventData fileAclEvent = new EventData(Encoding.UTF8.GetBytes(messageString));
                             if (!fileAclEventBatch.TryAdd(fileAclEvent)) throw new Exception("Maximum batch size of event hub batch exceeded!");
                         }
                         i++;
