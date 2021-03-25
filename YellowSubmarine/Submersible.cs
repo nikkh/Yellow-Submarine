@@ -33,7 +33,7 @@ namespace YellowSubmarine
         static readonly string dataLakeSasToken = Environment.GetEnvironmentVariable("DataLakeSasToken");
         static readonly string defaultPageSize = Environment.GetEnvironmentVariable("PageSize");
         readonly int pageSize;
-        int targetDepth;
+
         static readonly DataLakeServiceClient serviceClient = new DataLakeServiceClient(serviceUri, new AzureSasCredential(dataLakeSasToken));
         static readonly DataLakeFileSystemClient fileSystemClient = serviceClient.GetFileSystemClient(fileSystemName);
        
@@ -82,7 +82,12 @@ namespace YellowSubmarine
             if (string.IsNullOrEmpty(startPath)) 
                 throw new Exception("Start Path was not specified");
 
-            if (!int.TryParse(parameters.TargetDepth.ToString(), out int td)) targetDepth = int.MaxValue; else targetDepth = td;
+            int targetDepth = int.MaxValue;
+            string targetDepthParameter = parameters.TargetDepth;
+            if (!string.IsNullOrEmpty(targetDepthParameter)) 
+            {
+                if (!int.TryParse(parameters.TargetDepth.ToString(), out int td)) targetDepth = int.MaxValue; else targetDepth = td;
+            }
 
             telemetryClient.TrackEvent($"Deep Dive Request triggered by Http POST", new Dictionary<string, string>() { { "directory", startPath } });
             string requestId = Guid.NewGuid().ToString();
@@ -256,7 +261,7 @@ namespace YellowSubmarine
                     }
                     else
                     {
-                        log.LogInformation($"Page {currentPage} doesnt have a continuation token.  Processing complete for {dir.StartPath}");
+                        // no continuation token - just stop
                     }
 
                     // We have processed this page and queued a request to process the next one - end execution
