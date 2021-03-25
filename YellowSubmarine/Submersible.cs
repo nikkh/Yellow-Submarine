@@ -33,6 +33,7 @@ namespace YellowSubmarine
         static readonly string dataLakeSasToken = Environment.GetEnvironmentVariable("DataLakeSasToken");
         static readonly string defaultPageSize = Environment.GetEnvironmentVariable("PageSize");
         readonly int pageSize;
+        int targetDepth;
         static readonly DataLakeServiceClient serviceClient = new DataLakeServiceClient(serviceUri, new AzureSasCredential(dataLakeSasToken));
         static readonly DataLakeFileSystemClient fileSystemClient = serviceClient.GetFileSystemClient(fileSystemName);
        
@@ -45,36 +46,28 @@ namespace YellowSubmarine
             EventHubClient.CreateFromConnectionString(
                 Environment.GetEnvironmentVariable("ResultsEventHubFullConnectionString"));
 
-        readonly Metric deepDives;
-        readonly Metric directoryInspectionRequests;
-        readonly Metric directoryAclRequests;
-        readonly Metric fileAclRequests;
-        readonly Metric directoryPathRequests;
-        readonly Metric directoryInspectionRequestsDurationMs;
-        readonly Metric eventHubBatchSize;
-        readonly Metric directoryPathItems;
-        readonly Metric eventDeserializationTimeinMs;
+
+        static Metric eventHubBatchSize;
+        static Metric eventHubBatchLatency;
+        static Metric functionInvocations;
+        static Metric messagesProcessed;
+        static Metric directoriesProcessed;
+        static Metric filesProcessed;
+        static Metric targetDepthAchieved;
 
         public Submersible(TelemetryConfiguration telemetryConfig) 
         {
             telemetryClient = new TelemetryClient(telemetryConfig);
-            deepDives = telemetryClient.GetMetric("YSDeepDives");
-            directoryInspectionRequests = telemetryClient.GetMetric("YSDirectoryInspectionRequests");
-            directoryAclRequests = telemetryClient.GetMetric("YSDirectoryAclRequests");
-            fileAclRequests = telemetryClient.GetMetric("YSFileAclRequests");
-            directoryPathRequests = telemetryClient.GetMetric("YSDirectoryPathRequests");
-            directoryInspectionRequestsDurationMs = telemetryClient.GetMetric("YSDirectoryInspectionRequestsDurationMs");
-            eventHubBatchSize = telemetryClient.GetMetric("YSEventBatchSize");
-            directoryPathItems = telemetryClient.GetMetric("YSDirectoryPathItems");
-            eventDeserializationTimeinMs = telemetryClient.GetMetric("YSEventDeserializationTimeinMs");
-            if (!Int32.TryParse(defaultPageSize, out int ps))
-            {
-                pageSize = 5000;
-            }
-            else
-            {
-                pageSize = ps;
-            }
+            
+            eventHubBatchSize = telemetryClient.GetMetric("Explore Event Batch Latency");
+            eventHubBatchLatency = telemetryClient.GetMetric("Explore Event Batch Size");
+            functionInvocations = telemetryClient.GetMetric("Explore Functions Invoked");
+            messagesProcessed = telemetryClient.GetMetric("Explore Messages Processed");
+            directoriesProcessed = telemetryClient.GetMetric("Explore Functions Invoked");
+            filesProcessed = telemetryClient.GetMetric("Explore Messages Processed");
+            targetDepthAchieved = telemetryClient.GetMetric("Explore Target Depth Achieved");
+
+            if (!Int32.TryParse(defaultPageSize, out int ps)) pageSize = 5000; else pageSize = ps;
         }
 
         
@@ -88,49 +81,44 @@ namespace YellowSubmarine
             string startPath = parameters.StartPath;
             if (string.IsNullOrEmpty(startPath)) 
                 throw new Exception("Start Path was not specified");
-            
-            log.LogInformation($"Data Lake Exploration Trigger was received for path {parameters.StartPath}");
+
+            if (!int.TryParse(parameters.TargetDepth.ToString(), out int td)) targetDepth = int.MaxValue; else targetDepth = td;
+
             telemetryClient.TrackEvent($"Deep Dive Request triggered by Http POST", new Dictionary<string, string>() { { "directory", startPath } });
-            deepDives.TrackValue(1);
             string requestId = Guid.NewGuid().ToString();
             string tMessage = $"A deep dive into data lake {serviceUri} was requested. Exploration will start at path {parameters.StartPath}.  The tracking Id for your results is {requestId}";
-            log.LogInformation(tMessage);
             var outputContainer = blobClient.GetContainerReference(requestId);
             await outputContainer.CreateIfNotExistsAsync();
-            EventData ed = new EventData(Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(new DirectoryExplorationRequest { StartPath = startPath, RequestId=requestId })));
+            EventData ed = new EventData(Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(
+                new DirectoryExplorationRequest { StartPath = startPath, RequestId=requestId, TargetDepth=targetDepth })));
             await inspectionRequestClient.SendAsync(ed);
-
-           
-
-
-
             return new OkObjectResult(tMessage);
         }
 
         [FunctionName("Explore")]
         public async Task Explore([EventHubTrigger("%RequestsHub%", Connection = "EventHubConnection")] EventData[] events, ILogger log)
         {
+            functionInvocations.TrackValue(1);
+
             if (drain == "TRUE")
             {
-                log.LogCritical($"Running in drain mode - function will exit");
                 return;
             }
 
-            Stopwatch watch = new Stopwatch();
-            watch.Start();
+            double totalLatency = 0;
             var exceptions = new List<Exception>();
-            log.LogInformation($"Processing a batch of {events.Count()} requests");
             eventHubBatchSize.TrackValue(events.Count());
             foreach (EventData eventData in events)
             {
                 try
                 {
+                    messagesProcessed.TrackValue(1);
                     string messageBody = Encoding.UTF8.GetString(eventData.Body.Array, eventData.Body.Offset, eventData.Body.Count);
-                    var s = new Stopwatch();
-                    s.Start();
+                    var enqueuedTimeUtc = eventData.SystemProperties.EnqueuedTimeUtc;
+                    var nowTimeUTC = DateTime.UtcNow;
+                    totalLatency += nowTimeUTC.Subtract(enqueuedTimeUtc).TotalMilliseconds;
                     DirectoryExplorationRequest dir = JsonConvert.DeserializeObject<DirectoryExplorationRequest>(messageBody);
-                    s.Stop();
-                    eventDeserializationTimeinMs.TrackValue(s.ElapsedMilliseconds);
+
                     await InspectDirectory(dir, log);
                     await Task.Yield();
                 }
@@ -141,33 +129,30 @@ namespace YellowSubmarine
                 }
             }
 
+            eventHubBatchLatency.TrackValue(totalLatency / events.Length / 1000);
+
             // Once processing of the batch is complete, if any messages in the batch failed processing throw an exception so that there is a record of the failure.
             if (exceptions.Count > 1)
                 throw new AggregateException(exceptions);
 
             if (exceptions.Count == 1)
                 throw exceptions.Single();
-
-            watch.Stop();
-            directoryInspectionRequestsDurationMs.TrackValue(watch.ElapsedMilliseconds);
         }
 
         private async Task InspectDirectory(DirectoryExplorationRequest dir, ILogger log)
         {
-            directoryInspectionRequests.TrackValue(1);
 
-            // if there is a continuation token, dont send the results again
-            // they will have been sent on the first request
             var directoryClient = fileSystemClient.GetDirectoryClient(dir.StartPath);
             EventData directoryEvent;
             Response<PathAccessControl> aclResult;
 
+            // if there is a continuation token, dont send the results again
+            // they will have been sent on the first request
             if (string.IsNullOrEmpty(dir.ContinuationToken))
             {
                 // Get ACL for this directory
                 var directoryProps = await directoryClient.GetPropertiesAsync();
                 aclResult = await directoryClient.GetAccessControlAsync();
-                directoryAclRequests.TrackValue(1);
                 var directoryResult = new ExplorationResult
                 {
                     Type = InspectionResultType.Directory,
@@ -175,112 +160,112 @@ namespace YellowSubmarine
                     Acls = JsonConvert.SerializeObject(aclResult.Value.AccessControlList),
                     RequestId = dir.RequestId,
                     ETag = directoryProps.Value.ETag.ToString(),
-                    ModifiedDateTime = directoryProps.Value.LastModified.UtcDateTime.ToString()
+                    ModifiedDateTime = directoryProps.Value.LastModified.UtcDateTime.ToString(),
+                    Depth = dir.CurrentDepth
                 };
 
                 // Send result for this directory
                 directoryEvent = new EventData(Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(directoryResult)));
                 await inspectionResultClient.SendAsync(directoryEvent);
-                log.LogDebug($"Results for current directory path={dir.StartPath} sent to {resultsPath}");
             }
 
-            // Get directory contents and loop through them
-            AsyncPageable<PathItem> pathItems = directoryClient.GetPathsAsync(false);
-            log.LogDebug($"Directory contents retrieved for {dir.StartPath}");
-            directoryPathRequests.TrackValue(1);
-            int i = 1;
-            int currentPage = dir.PageNumber;
-            // if we are supplied with a continuation token, use it.
-            // this will read the page after the one that generated this token.
-            IAsyncEnumerable<Page<PathItem>> pages;
-            if (string.IsNullOrEmpty(dir.ContinuationToken))
+            // if target depth has been reached, stop.
+            if (dir.CurrentDepth < dir.TargetDepth)
             {
-                pages = pathItems.AsPages(null, pageSize);
-                log.LogDebug($"Processing {dir.StartPath} pageSize={pageSize}");
-            }
-            else
-            {
-                pages = pathItems.AsPages(dir.ContinuationToken, pageSize);
-                log.LogDebug($"Processing {dir.StartPath} pageSize={pageSize} continuationToken={dir.ContinuationToken}");
-            }
-            EventDataBatch requestEventBatch = new EventDataBatch(pageSize * 1000);
-            EventDataBatch resultEventBatch = new EventDataBatch(pageSize * 1000);
-
-            await foreach (var page in pages)
-            {
-                currentPage++;
-                foreach (var pathItem in page.Values)
+                // Get directory contents and loop through them
+                AsyncPageable<PathItem> pathItems = directoryClient.GetPathsAsync(false);
+                int i = 1;
+                int currentPage = dir.PageNumber;
+                // if we are supplied with a continuation token, use it.
+                // this will read the page after the one that generated this token.
+                IAsyncEnumerable<Page<PathItem>> pages;
+                if (string.IsNullOrEmpty(dir.ContinuationToken))
                 {
-                    log.LogDebug($"Processing {dir.StartPath} page={currentPage}");
-
-                    // if it's a directory, just send a message to get it processed.
-                    if ((bool)pathItem.IsDirectory)
-                    {
-                        directoryEvent = new EventData(Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(
-                            new DirectoryExplorationRequest
-                            {
-                                StartPath = pathItem.Name,
-                                RequestId = dir.RequestId
-                            }))
-                        );
-                        if (!requestEventBatch.TryAdd(directoryEvent)) throw new Exception("Maximum batch size of event hub batch exceeded!");
-                        // await inspectionRequestClient.SendAsync(directoryEvent);
-                        log.LogDebug($"# {i}: {pathItem.Name}.  A request was queued to process this directory");
-                    }
-                    // if it's a file, get its acls
-                    else
-                    {
-                        var fileClient = fileSystemClient.GetFileClient(pathItem.Name);
-                        aclResult = await fileClient.GetAccessControlAsync();
-                        fileAclRequests.TrackValue(1);
-                        var fileResult = new ExplorationResult
-                        {
-                            Type = InspectionResultType.File,
-                            Path = pathItem.Name,
-                            Acls = JsonConvert.SerializeObject(aclResult.Value.AccessControlList),
-                            RequestId = dir.RequestId,
-                            ETag = pathItem.ETag.ToString(),
-                            ModifiedDateTime = pathItem.LastModified.UtcDateTime.ToString()
-                        };
-                        EventData fileEvent = new EventData(Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(fileResult)));
-                        if (!resultEventBatch.TryAdd(fileEvent)) throw new Exception("Maximum batch size of event hub batch exceeded!");
-                        //await inspectionResultClient.SendAsync(fileEvent);
-                        log.LogDebug($"Results for File {fileResult.Path} sent to {resultsPath}");
-                    }
-                    i++;
-                }
-                // if we get here we have processed a full page
-                // Send the batch (we might have processed only files - so check batch has some contents and send if it does.
-                if (requestEventBatch.Count > 0) {
-                    log.LogInformation($"Sending a batch of {requestEventBatch.Count} messages to Event Hub {requestsPath}");
-                    await inspectionRequestClient.SendAsync(requestEventBatch); 
-                }
-                if (resultEventBatch.Count > 0)
-                {
-                    log.LogInformation($"Sending a batch of {resultEventBatch.Count} messages to Event Hub {resultsPath}");
-                    await inspectionResultClient.SendAsync(resultEventBatch);
-                }
-                // if there is another page to come, place a record on queue to process it.
-                if (!string.IsNullOrEmpty(page.ContinuationToken))
-                {
-                    log.LogInformation($"Page {currentPage} has a continuation token {page.ContinuationToken} another request will be queued for the next page for {dir.StartPath}");
-                    directoryEvent = new EventData(Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(
-                    new DirectoryExplorationRequest
-                    {
-                        StartPath = dir.StartPath,
-                        RequestId = dir.RequestId,
-                        ContinuationToken = page.ContinuationToken,
-                        PageNumber = currentPage
-                    }))); ;
-                    await inspectionRequestClient.SendAsync(directoryEvent);
+                    pages = pathItems.AsPages(null, pageSize);
                 }
                 else
                 {
-                    log.LogInformation($"Page {currentPage} doesnt have a continuation token.  Processing complete for {dir.StartPath}");
+                    pages = pathItems.AsPages(dir.ContinuationToken, pageSize);
                 }
+                EventDataBatch requestEventBatch = new EventDataBatch(pageSize * 1000);
+                EventDataBatch resultEventBatch = new EventDataBatch(pageSize * 1000);
 
-                // We have processed this page and queued a request to process the next one - end execution
-                break;
+                await foreach (var page in pages)
+                {
+                    currentPage++;
+                    foreach (var pathItem in page.Values)
+                    {
+                        // if it's a directory, just send a message to get it processed.
+                        if ((bool)pathItem.IsDirectory)
+                        {
+                            directoriesProcessed.TrackValue(1);
+                            directoryEvent = new EventData(Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(
+                                new DirectoryExplorationRequest
+                                {
+                                    StartPath = pathItem.Name,
+                                    RequestId = dir.RequestId,
+                                    TargetDepth = dir.TargetDepth,
+                                    CurrentDepth = dir.CurrentDepth + 1
+                                }))
+                            ); ;
+                            if (!requestEventBatch.TryAdd(directoryEvent)) throw new Exception("Maximum batch size of event hub batch exceeded!");
+                        }
+                        // if it's a file, get its acls
+                        else
+                        {
+                            filesProcessed.TrackValue(1);
+                            var fileClient = fileSystemClient.GetFileClient(pathItem.Name);
+                            aclResult = await fileClient.GetAccessControlAsync();
+                            var fileResult = new ExplorationResult
+                            {
+                                Type = InspectionResultType.File,
+                                Path = pathItem.Name,
+                                Acls = JsonConvert.SerializeObject(aclResult.Value.AccessControlList),
+                                RequestId = dir.RequestId,
+                                ETag = pathItem.ETag.ToString(),
+                                ModifiedDateTime = pathItem.LastModified.UtcDateTime.ToString(),
+                                Depth = dir.CurrentDepth
+                            };
+                            EventData fileEvent = new EventData(Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(fileResult)));
+                            if (!resultEventBatch.TryAdd(fileEvent)) throw new Exception("Maximum batch size of event hub batch exceeded!");
+                        }
+                        i++;
+                    }
+                    // if we get here we have processed a full page
+                    // Send the batch (we might have processed only files - so check batch has some contents and send if it does.
+                    if (requestEventBatch.Count > 0)
+                    {
+                        await inspectionRequestClient.SendAsync(requestEventBatch);
+                    }
+                    if (resultEventBatch.Count > 0)
+                    {
+                        await inspectionResultClient.SendAsync(resultEventBatch);
+                    }
+                    // if there is another page to come, place a record on queue to process it.
+                    if (!string.IsNullOrEmpty(page.ContinuationToken))
+                    {
+                        directoryEvent = new EventData(Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(
+                        new DirectoryExplorationRequest
+                        {
+                            StartPath = dir.StartPath,
+                            RequestId = dir.RequestId,
+                            ContinuationToken = page.ContinuationToken,
+                            PageNumber = currentPage
+                        }))); ;
+                        await inspectionRequestClient.SendAsync(directoryEvent);
+                    }
+                    else
+                    {
+                        log.LogInformation($"Page {currentPage} doesnt have a continuation token.  Processing complete for {dir.StartPath}");
+                    }
+
+                    // We have processed this page and queued a request to process the next one - end execution
+                    break;
+                }
+            }
+            else 
+            {
+                targetDepthAchieved.TrackValue(1);
             }
         }
     }

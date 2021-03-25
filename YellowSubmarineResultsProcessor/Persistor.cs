@@ -19,13 +19,15 @@ namespace YellowSubmarineResultsProcessor
     {
         private readonly TelemetryClient telemetryClient;
         private static readonly CloudBlobClient blobClient = StorageAccount.NewFromConnectionString(Environment.GetEnvironmentVariable("OutputStorageConnection")).CreateCloudBlobClient();
-        readonly Metric deepDiveResults;
+        readonly Metric blobsWritten;
+        readonly Metric eventHubBatchLatency;
         CloudBlobContainer resultContainer;
 
         public Persistor(TelemetryConfiguration telemetryConfig) 
         {
             telemetryClient = new TelemetryClient(telemetryConfig);
-            deepDiveResults = telemetryClient.GetMetric("DeepDiveResults");
+            blobsWritten = telemetryClient.GetMetric("Explore Results Blobs Written");
+            eventHubBatchLatency = telemetryClient.GetMetric("Explore Results Batch Latency");
         }
 
         [FunctionName("Persistor")]
@@ -33,21 +35,24 @@ namespace YellowSubmarineResultsProcessor
         public async Task Run([EventHubTrigger("%ResultsHub%", Connection = "EventHubConnection")] EventData[] events, ILogger log)
         {
             var exceptions = new List<Exception>();
-
+            double totalLatency = 0;
             foreach (EventData eventData in events)
             {
                 try
                 {
-                    deepDiveResults.TrackValue(1);
+                    var enqueuedTimeUtc = eventData.SystemProperties.EnqueuedTimeUtc;
+                    var nowTimeUTC = DateTime.UtcNow;
+                    totalLatency += nowTimeUTC.Subtract(enqueuedTimeUtc).TotalMilliseconds;
                     string messageBody = Encoding.UTF8.GetString(eventData.Body.Array, eventData.Body.Offset, eventData.Body.Count);
                     ExplorationResult result = JsonConvert.DeserializeObject<ExplorationResult>(messageBody);
                     if (resultContainer == null) resultContainer = blobClient.GetContainerReference(result.RequestId);
-                    string extension = "file";
-                    if (result.Type == InspectionResultType.Directory) extension = "directory";
-                    var blobName = $"{result.RequestId}-{result.Path.Replace('/', '-')}.{extension}";
+                    string extension = "f";
+                    if (result.Type == InspectionResultType.Directory) extension = "d";
+                    var blobName = $"{result.Path.Replace('/', '-')}.{extension}";
                     var blob = resultContainer.GetBlockBlobReference(blobName);
                     MemoryStream stream = new MemoryStream(Encoding.UTF8.GetBytes(messageBody));
                     await blob.UploadFromStreamAsync(stream);
+                    blobsWritten.TrackValue(1);
                     await Task.Yield();
                 }
                 catch (Exception e)
@@ -57,6 +62,7 @@ namespace YellowSubmarineResultsProcessor
                     exceptions.Add(e);
                 }
             }
+            eventHubBatchLatency.TrackValue(totalLatency / events.Length / 1000);
 
             // Once processing of the batch is complete, if any messages in the batch failed processing throw an exception so that there is a record of the failure.
 
