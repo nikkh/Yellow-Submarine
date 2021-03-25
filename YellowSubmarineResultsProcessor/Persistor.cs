@@ -31,7 +31,6 @@ namespace YellowSubmarineResultsProcessor
         }
 
         [FunctionName("Persistor")]
-       
         public async Task Run([EventHubTrigger("%ResultsHub%", Connection = "EventHubConnection")] EventData[] events, ILogger log)
         {
             var exceptions = new List<Exception>();
@@ -49,13 +48,14 @@ namespace YellowSubmarineResultsProcessor
 
                     CloudAppendBlob logBlob = resultContainer.GetAppendBlobReference(blobName: "log.txt");
                     if (!logBlob.Exists()) logBlob.CreateOrReplace();
-                    logBlob.AppendText($"{result.ToCsv()}{Environment.NewLine}");
+                    MemoryStream stream = new MemoryStream(Encoding.UTF8.GetBytes($"{result.ToCsv()}{Environment.NewLine}"));
+                    await logBlob.AppendBlockAsync(stream);
 
                     string extension = "f";
                     if (result.Type == InspectionResultType.Directory) extension = "d";
                     var blobName = $"{result.Path.Replace('/', '-')}.{extension}";
                     var blob = resultContainer.GetBlockBlobReference(blobName);
-                    MemoryStream stream = new MemoryStream(Encoding.UTF8.GetBytes(messageBody));
+                    stream = new MemoryStream(Encoding.UTF8.GetBytes(messageBody));
                     await blob.UploadFromStreamAsync(stream);
                     blobsWritten.TrackValue(1);
                     await Task.Yield();
