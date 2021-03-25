@@ -30,7 +30,7 @@ env:
   LOCATION: ${{ github.event.inputs.location }}
   DATALAKE_URI: ${github.event.inputs.datalake_uri}}
   DATALAKE_SAS: ${{github.event.inputs.datalake_sas}}
-  DATALAKE_FILESYSTEM: ${{github.event.inputs.datalake_filesystem}
+  DATALAKE_FILESYSTEM: ${{github.event.inputs.datalake_filesystem}}
 
 jobs:
   job1:
