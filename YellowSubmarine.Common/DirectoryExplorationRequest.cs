@@ -13,5 +13,7 @@ namespace YellowSubmarine.Common
 
         public int TargetDepth { get; set; }
         public int CurrentDepth { get; set; }
+        public string ETag { get; set; }
+        public string ModifiedDateTime { get; set; }
     }
 }
