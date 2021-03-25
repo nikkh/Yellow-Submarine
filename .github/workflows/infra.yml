@@ -46,5 +46,5 @@ jobs:
    
       - name: Run Deployment Scripts
         run: |
-                chmod +x /Infra/Scripts/create_infra.sh
-                /Infra/Scripts/create_infra.sh
+                chmod +x Infra/Scripts/create_infra.sh
+                Infra/Scripts/create_infra.sh
