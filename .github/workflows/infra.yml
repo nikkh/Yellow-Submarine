@@ -28,7 +28,7 @@ on:
 env:
   APPLICATION_NAME: ${{ github.event.inputs.alias }}
   LOCATION: ${{ github.event.inputs.location }}
-  DATALAKE_URI: ${github.event.inputs.datalake_uri}}
+  DATALAKE_URI: ${{github.event.inputs.datalake_uri}}
   DATALAKE_SAS: ${{github.event.inputs.datalake_sas}}
   DATALAKE_FILESYSTEM: ${{github.event.inputs.datalake_filesystem}}
 
