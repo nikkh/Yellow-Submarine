@@ -46,6 +46,11 @@ namespace YellowSubmarineResultsProcessor
                     string messageBody = Encoding.UTF8.GetString(eventData.Body.Array, eventData.Body.Offset, eventData.Body.Count);
                     ExplorationResult result = JsonConvert.DeserializeObject<ExplorationResult>(messageBody);
                     if (resultContainer == null) resultContainer = blobClient.GetContainerReference(result.RequestId);
+
+                    CloudAppendBlob logBlob = resultContainer.GetAppendBlobReference(blobName: "log.txt");
+                    if (!logBlob.Exists()) logBlob.CreateOrReplace();
+                    logBlob.AppendText($"{result.ToCsv()}{Environment.NewLine}");
+
                     string extension = "f";
                     if (result.Type == InspectionResultType.Directory) extension = "d";
                     var blobName = $"{result.Path.Replace('/', '-')}.{extension}";
