@@ -222,14 +222,14 @@ namespace YellowSubmarine
                         else
                         {
                             filesProcessed.TrackValue(1);
-                            var fileResult = new ExplorationResult
+                            var fileResult = new DirectoryExplorationRequest
                             {
-                                Type = InspectionResultType.File,
-                                Path = pathItem.Name,
+                                CurrentDepth = dir.CurrentDepth,
+                                StartPath = pathItem.Name, 
                                 RequestId = dir.RequestId,
                                 ETag = pathItem.ETag.ToString(),
                                 ModifiedDateTime = pathItem.LastModified.UtcDateTime.ToString(),
-                                Depth = dir.CurrentDepth
+                                
                             };
                             EventData fileAclEvent = new EventData(Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(fileResult)));
                             if (!fileAclEventBatch.TryAdd(fileAclEvent)) throw new Exception("Maximum batch size of event hub batch exceeded!");
