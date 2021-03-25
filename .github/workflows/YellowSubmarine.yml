@@ -1,7 +1,13 @@
 name: Yellow Submarine
 on: 
   workflow_dispatch:
-   
+    inputs:
+      alias:
+        description: 'Application alias'     
+        required: true
+        default: 'fargo'
+
+  
 jobs:
   job1:
     name: Deploy Yellow Submarine Application
@@ -29,5 +35,5 @@ jobs:
       name: 'Deploy Yellow Submarine to Function App'
       uses: Azure/functions-action@v1.1.6
       with:
-        app-name: Yellow-Submarine-func
+        app-name: ${{ github.event.inputs.alias }}-processor-func
         package: ${{env.DOTNET_ROOT}}/YellowSubmarine-app 
