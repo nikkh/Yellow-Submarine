@@ -24,9 +24,9 @@ az group create -n $resourceGroupName -l $location --tags PendingDelete=true
 
 echo "EventHub Namespace $processorEventHubNamespace"
 az eventhubs namespace create -g $resourceGroupName --name $processorEventHubNamespace -l $location --sku Standard --enable-auto-inflate --maximum-throughput-units 20
-eventHubConnection=$(az eventhubs namespace  authorization-rule keys list -g $resourceGroupName --namespace-name $processorEventHubNamespace  --name RootManageSharedAccessKey --query primaryConnectionString -o tsv)
+requestsEventHubConnection=$(az eventhubs namespace  authorization-rule keys list -g $resourceGroupName --namespace-name $processorEventHubNamespace  --name RootManageSharedAccessKey --query primaryConnectionString -o tsv)
 ep="EntityPath=$requestsHub;SharedAccessKeyName"
-requestsEventHubFullConnectionString=$(echo $eventHubConnection | sed s/\SharedAccessKeyName/"$ep"/)
+requestsEventHubFullConnectionString=$(echo $requestsEventHubConnection | sed s/\SharedAccessKeyName/"$ep"/)
 
 az eventhubs namespace create -g $resourceGroupName --name $resultsEventHubNamespace -l $location --sku Standard --enable-auto-inflate --maximum-throughput-units 2
 resultsEventHubConnection=$(az eventhubs namespace  authorization-rule keys list -g $resourceGroupName --namespace-name $resultsEventHubNamespace  --name RootManageSharedAccessKey --query primaryConnectionString -o tsv)
@@ -40,5 +40,5 @@ az storage account create  --name $resultsStorageAccountName  -l $location  -g $
 resultsStorageAccountConnectionString=$(az storage account show-connection-string -g $resourceGroupName -n $resultsStorageAccountName -o tsv)
 az functionapp create  --name $processorFunctionApp   --consumption-plan-location $location  --storage-account $processorStorageAccountName  -g $resourceGroupName --functions-version 3
 az functionapp create  --name $resultsFunctionApp   --consumption-plan-location $location  --storage-account $resultsStorageAccountName  -g $resourceGroupName --functions-version 3
-az webapp config appsettings set -g $resourceGroupName -n $processorFunctionApp --settings EventHubConnection=$eventHubConnection DRAIN=$drain dataLakeSasToken=$dataLakeSasToken dataLakeUri=$dataLakeUri FileSystemName=$fileSystemName OutputStorageConnection=$resultsStorageAccountConnectionString RequestsEventHubFullConnectionString=$requestsEventHubFullConnectionString ResultsEventHubFullConnectionString=$resultsEventHubFullConnectionString ResultsHub=$resultsHub RequestsHub=$requestsHub PageSize=$pageSize
-az webapp config appsettings set -g $resourceGroupName -n $resultsFunctionApp --settings EventHubConnection=$eventHubConnection OutputStorageConnection=$resultsStorageAccountConnectionString ResultsHub=$resultsHub 
+az webapp config appsettings set -g $resourceGroupName -n $processorFunctionApp --settings EventHubConnection=$requestsEventHubConnection DRAIN=$drain dataLakeSasToken=$dataLakeSasToken dataLakeUri=$dataLakeUri FileSystemName=$fileSystemName OutputStorageConnection=$resultsStorageAccountConnectionString RequestsEventHubFullConnectionString=$requestsEventHubFullConnectionString ResultsEventHubFullConnectionString=$resultsEventHubFullConnectionString ResultsHub=$resultsHub RequestsHub=$requestsHub PageSize=$pageSize
+az webapp config appsettings set -g $resourceGroupName -n $resultsFunctionApp --settings EventHubConnection=$resultsEventHubConnection OutputStorageConnection=$resultsStorageAccountConnectionString ResultsHub=$resultsHub 
