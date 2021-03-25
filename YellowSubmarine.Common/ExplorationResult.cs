@@ -17,6 +17,7 @@ namespace YellowSubmarine.Common
         public DateTime ResultDateTime { get; }
         public string ETag { get; set; }
         public string ModifiedDateTime { get; set; }
+        public int Depth { get; set; }
     }
 
     public enum InspectionResultType { Directory, File}

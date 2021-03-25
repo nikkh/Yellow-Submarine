@@ -8,5 +8,10 @@ namespace YellowSubmarine.Common
     {
         public string RequestId { get; set; }
         public string StartPath { get; set; }
+        public string ContinuationToken { get; set; }
+        public int PageNumber { get; set; }
+
+        public int TargetDepth { get; set; }
+        public int CurrentDepth { get; set; }
     }
 }

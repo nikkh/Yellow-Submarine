@@ -1,0 +1,50 @@
+name: Deploy Infrastructure
+on: 
+  workflow_dispatch:
+    inputs:
+      alias:
+        description: 'Application alias'     
+        required: true
+        default: 'fargo'
+      location:
+        description: 'Location'     
+        required: true
+        default: 'uksouth'
+      datalake_uri:
+        description: 'data lake uri'     
+        required: true
+      datalake_sas:
+        description: 'data lake sas'     
+        required: true
+      datalake_filesystem:
+        description: 'data lake file system'     
+        required: true
+        default: 'root'
+      pendingDelete:
+        description: 'pending delete?'     
+        required: true
+        default: 'true'
+
+env:
+  APPLICATION_NAME: ${{ github.event.inputs.alias }}
+  LOCATION: ${{ github.event.inputs.location }}
+  DATALAKE_URI: ${{github.event.inputs.datalake_uri}}
+  DATALAKE_SAS: ${{github.event.inputs.datalake_sas}}
+  DATALAKE_FILESYSTEM: ${{github.event.inputs.datalake_filesystem}}
+
+jobs:
+  job1:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v2
+        
+      - name: Login to Azure
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+   
+      - name: Run Deployment Scripts
+        run: |
+                chmod +x Infra/Scripts/create_infra.sh
+                Infra/Scripts/create_infra.sh
