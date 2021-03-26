@@ -7,6 +7,8 @@ namespace YellowSubmarine.Common
     public class ExplorationResult
     {
         private StringBuilder builder;
+        private readonly string _id = Guid.NewGuid().ToString();
+        public string id { get { return _id; } }
         public ExplorationResult() 
         {
             this.ResultDateTime = DateTime.UtcNow;
