@@ -19,18 +19,24 @@ namespace YellowSubmarineResultsProcessor
     public class Persistor
     {
         private readonly TelemetryClient telemetryClient;
-        private static readonly CloudBlobClient blobClient = StorageAccount.NewFromConnectionString(Environment.GetEnvironmentVariable("OutputStorageConnection")).CreateCloudBlobClient();
         readonly Metric blobsWritten;
         readonly Metric eventHubBatchLatency;
-        CloudBlobContainer resultContainer;
+        readonly int maxThroughput;
         private static readonly string endpoint = Environment.GetEnvironmentVariable("CosmosEndPointUrl");
+        private static readonly string cosmosMaxThroughput = Environment.GetEnvironmentVariable("CosmosMaxThroughput"; 
         private static readonly string authKey = Environment.GetEnvironmentVariable("CosmosAuthorizationKey");
         private static readonly CosmosClient cosmosClient = new CosmosClient(endpoint, authKey);
         private static readonly string cosmosDatabaseId = Environment.GetEnvironmentVariable("CosmosDatabaseId");
         private static readonly string cosmosContainerId = Environment.GetEnvironmentVariable("CosmosContainerId");
+        Container resultsContainer;
         private Database cosmosDb;
         public Persistor(TelemetryConfiguration telemetryConfig) 
         {
+            maxThroughput = 400;
+            if (!string.IsNullOrEmpty(cosmosMaxThroughput))
+            {
+                if (!int.TryParse(cosmosMaxThroughput, out int m)) maxThroughput = 400; else maxThroughput = m;
+            }
             telemetryClient = new TelemetryClient(telemetryConfig);
             blobsWritten = telemetryClient.GetMetric("Explore Results Blobs Written");
             eventHubBatchLatency = telemetryClient.GetMetric("Explore Results Batch Latency");
@@ -77,9 +83,12 @@ namespace YellowSubmarineResultsProcessor
 
         private async Task SaveToCosmosAsync(ExplorationResult result)
         {
-            ContainerProperties containerProperties = new ContainerProperties(cosmosContainerId, partitionKeyPath: "/RequestId");
-            Container container = await cosmosDb.CreateContainerIfNotExistsAsync(containerProperties, throughput: 400);
-            await container.CreateItemAsync(result, new PartitionKey(result.RequestId),
+            if (resultsContainer == null) 
+            {
+                ContainerProperties containerProperties = new ContainerProperties(cosmosContainerId, partitionKeyPath: "/RequestId");
+                resultsContainer = await cosmosDb.CreateContainerIfNotExistsAsync(containerProperties, ThroughputProperties.CreateAutoscaleThroughput(maxThroughput));
+            }
+            await resultsContainer.CreateItemAsync(result, new PartitionKey(result.RequestId),
             new ItemRequestOptions()
             {
                 EnableContentResponseOnWrite = false
