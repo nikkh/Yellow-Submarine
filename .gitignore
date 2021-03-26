@@ -362,3 +362,4 @@ MigrationBackup/
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
 /YellowSubmarine/local - Copy.settings.json
+/YellowSubmarineFileAclHandler/local.settings.json
