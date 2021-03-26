@@ -45,7 +45,9 @@ namespace YellowSubmarine
         static readonly EventHubClient inspectionResultClient =
             EventHubClient.CreateFromConnectionString(
                 Environment.GetEnvironmentVariable("ResultsEventHubFullConnectionString"));
-
+        static readonly EventHubClient fileAclClient =
+            EventHubClient.CreateFromConnectionString(
+                Environment.GetEnvironmentVariable("FileAclEventHubFullConnectionString"));
 
         static Metric eventHubBatchSize;
         static Metric eventHubBatchLatency;
@@ -194,6 +196,7 @@ namespace YellowSubmarine
                 }
                 EventDataBatch requestEventBatch = new EventDataBatch(pageSize * 1000);
                 EventDataBatch resultEventBatch = new EventDataBatch(pageSize * 1000);
+                EventDataBatch fileAclEventBatch = new EventDataBatch(pageSize * 1000);
 
                 await foreach (var page in pages)
                 {
@@ -219,20 +222,20 @@ namespace YellowSubmarine
                         else
                         {
                             filesProcessed.TrackValue(1);
-                            var fileClient = fileSystemClient.GetFileClient(pathItem.Name);
-                            aclResult = await fileClient.GetAccessControlAsync();
-                            var fileResult = new ExplorationResult
+                            var fileResult = new DirectoryExplorationRequest
                             {
-                                Type = InspectionResultType.File,
-                                Path = pathItem.Name,
-                                Acls = JsonConvert.SerializeObject(aclResult.Value.AccessControlList),
+                                CurrentDepth = dir.CurrentDepth,
+                                StartPath = pathItem.Name, 
                                 RequestId = dir.RequestId,
                                 ETag = pathItem.ETag.ToString(),
                                 ModifiedDateTime = pathItem.LastModified.UtcDateTime.ToString(),
-                                Depth = dir.CurrentDepth
+                                
                             };
-                            EventData fileEvent = new EventData(Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(fileResult)));
-                            if (!resultEventBatch.TryAdd(fileEvent)) throw new Exception("Maximum batch size of event hub batch exceeded!");
+                            
+                            var messageString = JsonConvert.SerializeObject(fileResult);
+                            log.LogInformation($"YYYY> MessageString is {messageString}");
+                            EventData fileAclEvent = new EventData(Encoding.UTF8.GetBytes(messageString));
+                            if (!fileAclEventBatch.TryAdd(fileAclEvent)) throw new Exception("Maximum batch size of event hub batch exceeded!");
                         }
                         i++;
                     }
@@ -245,6 +248,10 @@ namespace YellowSubmarine
                     if (resultEventBatch.Count > 0)
                     {
                         await inspectionResultClient.SendAsync(resultEventBatch);
+                    }
+                    if (fileAclEventBatch.Count > 0)
+                    {
+                        await fileAclClient.SendAsync(fileAclEventBatch);
                     }
                     // if there is another page to come, place a record on queue to process it.
                     if (!string.IsNullOrEmpty(page.ContinuationToken))

@@ -37,7 +37,6 @@ namespace YellowSubmarineResultsProcessor
         }
 
         [FunctionName("Persistor")]
-       
         public async Task Run([EventHubTrigger("%ResultsHub%", Connection = "EventHubConnection")] EventData[] events, ILogger log)
         {
             cosmosDb = await cosmosClient.CreateDatabaseIfNotExistsAsync(cosmosDatabaseId);

@@ -6,9 +6,11 @@ namespace YellowSubmarine.Common
 {
     public class ExplorationResult
     {
+        private StringBuilder builder;
         public ExplorationResult() 
         {
             this.ResultDateTime = DateTime.UtcNow;
+            builder = new StringBuilder();
         }
         public InspectionResultType Type { get; set; }
         public string Acls { get; set; }
@@ -18,6 +20,23 @@ namespace YellowSubmarine.Common
         public string ETag { get; set; }
         public string ModifiedDateTime { get; set; }
         public int Depth { get; set; }
+
+        public string ToCsv()
+        {
+            builder.Clear();
+            builder.Append(Type);
+            builder.Append(',');
+            builder.Append(Path);
+            builder.Append(',');
+            builder.Append(ResultDateTime.ToString());
+            builder.Append(',');
+            builder.Append(ETag);
+            builder.Append(',');
+            builder.Append(ModifiedDateTime);
+            builder.Append(',');
+            builder.Append(Depth);
+            return builder.ToString();
+        }
     }
 
     public enum InspectionResultType { Directory, File}
