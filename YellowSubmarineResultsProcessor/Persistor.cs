@@ -19,8 +19,15 @@ namespace YellowSubmarineResultsProcessor
     public class Persistor
     {
         private readonly TelemetryClient telemetryClient;
-        readonly Metric blobsWritten;
+
         readonly Metric eventHubBatchLatency;
+        readonly Metric eventHubBatchSize;
+        readonly Metric functionInvocations;
+        readonly Metric messagesProcessed;
+        readonly Metric blobsWritten;
+        readonly Metric cosmosDocumentsWritten;
+
+
         readonly int maxThroughput;
         private static readonly CloudBlobClient blobClient = StorageAccount.NewFromConnectionString(Environment.GetEnvironmentVariable("OutputStorageConnection")).CreateCloudBlobClient();
         private static readonly string endpoint = Environment.GetEnvironmentVariable("CosmosEndPointUrl");
@@ -36,14 +43,20 @@ namespace YellowSubmarineResultsProcessor
         private Database cosmosDb;
         public Persistor(TelemetryConfiguration telemetryConfig) 
         {
+            blobsWritten = telemetryClient.GetMetric("New Results Blobs Written");
+            eventHubBatchLatency = telemetryClient.GetMetric("New Results Batch Latency");
+            eventHubBatchSize = telemetryClient.GetMetric("New Results Event Batch Size");
+            functionInvocations = telemetryClient.GetMetric("New Results Functions Invoked");
+            messagesProcessed = telemetryClient.GetMetric("New Results Messages Processed");
+            cosmosDocumentsWritten = telemetryClient.GetMetric("New Results Cosmos Documents Written");
+
             maxThroughput = 400;
             if (!string.IsNullOrEmpty(cosmosMaxThroughput))
             {
                 if (!int.TryParse(cosmosMaxThroughput, out int m)) maxThroughput = 400; else maxThroughput = m;
             }
             telemetryClient = new TelemetryClient(telemetryConfig);
-            blobsWritten = telemetryClient.GetMetric("Explore Results Blobs Written");
-            eventHubBatchLatency = telemetryClient.GetMetric("Explore Results Batch Latency");
+
 
             if (!string.IsNullOrEmpty(useCosmos)) 
             {
@@ -54,7 +67,8 @@ namespace YellowSubmarineResultsProcessor
         [FunctionName("Persistor")]
         public async Task Run([EventHubTrigger("%ResultsHub%", Connection = "EventHubConnection")] EventData[] events, ILogger log)
         {
-            
+            functionInvocations.TrackValue(1);
+            eventHubBatchSize.TrackValue(events.Length);
             var exceptions = new List<Exception>();
             double totalLatency = 0;
             foreach (EventData eventData in events)
@@ -68,7 +82,7 @@ namespace YellowSubmarineResultsProcessor
                     ExplorationResult result = JsonConvert.DeserializeObject<ExplorationResult>(messageBody);
                     if (cosmosRequired) await SaveToCosmosAsync(result);
                     await SaveToBlobAsync(result);
-                    blobsWritten.TrackValue(1);
+                    messagesProcessed.TrackValue(1);
                     await Task.Yield();
                 }
                 catch (Exception e)
@@ -101,6 +115,7 @@ namespace YellowSubmarineResultsProcessor
             var payload = JsonConvert.SerializeObject(result);
             MemoryStream stream = new MemoryStream(Encoding.UTF8.GetBytes(payload));
             await blob.UploadFromStreamAsync(stream);
+            blobsWritten.TrackValue(1);
         }
 
         private async Task SaveToCosmosAsync(ExplorationResult result)
@@ -116,6 +131,7 @@ namespace YellowSubmarineResultsProcessor
             {
                 EnableContentResponseOnWrite = false
             });
+            cosmosDocumentsWritten.TrackValue(1);
         }
     }
 }

@@ -61,12 +61,12 @@ namespace YellowSubmarine
         {
             telemetryClient = new TelemetryClient(telemetryConfig);
             
-            eventHubBatchSize = telemetryClient.GetMetric("Explore Event Batch Latency");
-            eventHubBatchLatency = telemetryClient.GetMetric("Explore Event Batch Size");
-            functionInvocations = telemetryClient.GetMetric("Explore Functions Invoked");
-            messagesProcessed = telemetryClient.GetMetric("Explore Messages Processed");
-            directoriesProcessed = telemetryClient.GetMetric("Explore Functions Invoked");
-            filesProcessed = telemetryClient.GetMetric("Explore Messages Processed");
+            eventHubBatchSize = telemetryClient.GetMetric("New Explore Event Batch Size");
+            eventHubBatchLatency = telemetryClient.GetMetric("New Explore Event Batch Latency");
+            functionInvocations = telemetryClient.GetMetric("New Explore Functions Invoked");
+            messagesProcessed = telemetryClient.GetMetric("New Explore Messages Processed");
+            directoriesProcessed = telemetryClient.GetMetric("New Explore Directories Processed");
+            filesProcessed = telemetryClient.GetMetric("New Explore Files Processed");
             targetDepthAchieved = telemetryClient.GetMetric("Explore Target Depth Achieved");
 
             if (!Int32.TryParse(defaultPageSize, out int ps)) pageSize = 5000; else pageSize = ps;
@@ -119,14 +119,14 @@ namespace YellowSubmarine
             {
                 try
                 {
-                    messagesProcessed.TrackValue(1);
+                    
                     string messageBody = Encoding.UTF8.GetString(eventData.Body.Array, eventData.Body.Offset, eventData.Body.Count);
                     var enqueuedTimeUtc = eventData.SystemProperties.EnqueuedTimeUtc;
                     var nowTimeUTC = DateTime.UtcNow;
                     totalLatency += nowTimeUTC.Subtract(enqueuedTimeUtc).TotalMilliseconds;
                     DirectoryExplorationRequest dir = JsonConvert.DeserializeObject<DirectoryExplorationRequest>(messageBody);
-
                     await InspectDirectory(dir, log);
+                    messagesProcessed.TrackValue(1);
                     await Task.Yield();
                 }
                 catch (Exception e)
@@ -173,6 +173,7 @@ namespace YellowSubmarine
 
                 // Send result for this directory
                 directoryEvent = new EventData(Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(directoryResult)));
+                directoriesProcessed.TrackValue(1);
                 await inspectionResultClient.SendAsync(directoryEvent);
             }
 
@@ -206,7 +207,6 @@ namespace YellowSubmarine
                         // if it's a directory, just send a message to get it processed.
                         if ((bool)pathItem.IsDirectory)
                         {
-                            directoriesProcessed.TrackValue(1);
                             directoryEvent = new EventData(Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(
                                 new DirectoryExplorationRequest
                                 {
@@ -215,13 +215,12 @@ namespace YellowSubmarine
                                     TargetDepth = dir.TargetDepth,
                                     CurrentDepth = dir.CurrentDepth + 1
                                 }))
-                            ); ;
+                            ); 
                             if (!requestEventBatch.TryAdd(directoryEvent)) throw new Exception("Maximum batch size of event hub batch exceeded!");
                         }
                         // if it's a file, get its acls
                         else
                         {
-                            filesProcessed.TrackValue(1);
                             var fileResult = new DirectoryExplorationRequest
                             {
                                 CurrentDepth = dir.CurrentDepth,
@@ -231,11 +230,11 @@ namespace YellowSubmarine
                                 ModifiedDateTime = pathItem.LastModified.UtcDateTime.ToString(),
                                 
                             };
-                            
                             var messageString = JsonConvert.SerializeObject(fileResult);
                             log.LogInformation($"YYYY> MessageString is {messageString}");
                             EventData fileAclEvent = new EventData(Encoding.UTF8.GetBytes(messageString));
                             if (!fileAclEventBatch.TryAdd(fileAclEvent)) throw new Exception("Maximum batch size of event hub batch exceeded!");
+                            filesProcessed.TrackValue(1);
                         }
                         i++;
                     }

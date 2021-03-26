@@ -34,14 +34,16 @@ namespace YellowSubmarineFileAclHandler
         readonly Metric eventHubBatchSize;
         readonly Metric eventHubBatchLatency;
         readonly Metric functionInvocations;
+        readonly Metric messagesProcessed;
 
 
         public Handler(TelemetryConfiguration telemetryConfig)
         {
             telemetryClient = new TelemetryClient(telemetryConfig);
-            eventHubBatchSize = telemetryClient.GetMetric("FileAcl Event Batch Latency");
-            eventHubBatchLatency = telemetryClient.GetMetric("FileAcl Event Batch Size");
-            functionInvocations = telemetryClient.GetMetric("FileAcl Functions Invoked");
+            eventHubBatchLatency = telemetryClient.GetMetric("New FileAcl Event Batch Latency");
+            eventHubBatchSize = telemetryClient.GetMetric("New FileAcl Event Batch Size");
+            functionInvocations = telemetryClient.GetMetric("New FileAcl Functions Invoked");
+            messagesProcessed = telemetryClient.GetMetric("New FileAcl Messages Processed");
         }
 
         [FunctionName("FileAclHandler")]
@@ -53,6 +55,8 @@ namespace YellowSubmarineFileAclHandler
             {
                 return;
             }
+
+            eventHubBatchSize.TrackValue(events.Length);
             var exceptions = new List<Exception>();
             double totalLatency = 0;
             EventDataBatch resultEventBatch = new EventDataBatch(5000 * 1000);
@@ -80,6 +84,7 @@ namespace YellowSubmarineFileAclHandler
                     };
                     EventData fileEvent = new EventData(Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(fileResult)));
                     if (!resultEventBatch.TryAdd(fileEvent)) throw new Exception("Maximum batch size of event hub batch exceeded!");
+                    messagesProcessed.TrackValue(1);
                     await Task.Yield();
                 }
                 catch (Exception e)
