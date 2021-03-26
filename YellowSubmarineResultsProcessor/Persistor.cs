@@ -85,10 +85,10 @@ namespace YellowSubmarineResultsProcessor
         {
             if (resultsContainer == null) 
             {
-                ContainerProperties containerProperties = new ContainerProperties(cosmosContainerId, partitionKeyPath: "/RequestId");
+                ContainerProperties containerProperties = new ContainerProperties($"{cosmosContainerId}-{result.RequestId}", partitionKeyPath: "/PartitionKey");
                 resultsContainer = await cosmosDb.CreateContainerIfNotExistsAsync(containerProperties, ThroughputProperties.CreateAutoscaleThroughput(maxThroughput));
             }
-            await resultsContainer.CreateItemAsync(result, new PartitionKey(result.RequestId),
+            await resultsContainer.CreateItemAsync(result, new PartitionKey(result.PartitionKey),
             new ItemRequestOptions()
             {
                 EnableContentResponseOnWrite = false
