@@ -56,19 +56,19 @@ namespace YellowSubmarine
         static Metric directoriesProcessed;
         static Metric filesProcessed;
         static Metric targetDepthAchieved;
+        static Metric continuationPages;
 
         public Submersible(TelemetryConfiguration telemetryConfig) 
         {
             telemetryClient = new TelemetryClient(telemetryConfig);
-            
             eventHubBatchSize = telemetryClient.GetMetric("New Explore Event Batch Size");
             eventHubBatchLatency = telemetryClient.GetMetric("New Explore Event Batch Latency");
             functionInvocations = telemetryClient.GetMetric("New Explore Functions Invoked");
             messagesProcessed = telemetryClient.GetMetric("New Explore Messages Processed");
             directoriesProcessed = telemetryClient.GetMetric("New Explore Directories Processed");
             filesProcessed = telemetryClient.GetMetric("New Explore Files Processed");
-            targetDepthAchieved = telemetryClient.GetMetric("Explore Target Depth Achieved");
-
+            targetDepthAchieved = telemetryClient.GetMetric("New Explore Target Depth Achieved");
+            continuationPages = telemetryClient.GetMetric("New Explore Continuation Pages");
             if (!Int32.TryParse(defaultPageSize, out int ps)) pageSize = 5000; else pageSize = ps;
         }
 
@@ -106,7 +106,6 @@ namespace YellowSubmarine
         public async Task Explore([EventHubTrigger("%RequestsHub%", Connection = "EventHubConnection")] EventData[] events, ILogger log)
         {
             functionInvocations.TrackValue(1);
-
             if (drain == "TRUE")
             {
                 return;
@@ -176,7 +175,10 @@ namespace YellowSubmarine
                 directoriesProcessed.TrackValue(1);
                 await inspectionResultClient.SendAsync(directoryEvent);
             }
-
+            else
+            {
+                continuationPages.TrackValue(1);
+            }
             // if target depth has been reached, stop.
             if (dir.CurrentDepth < dir.TargetDepth)
             {
@@ -198,10 +200,11 @@ namespace YellowSubmarine
                 EventDataBatch requestEventBatch = new EventDataBatch(pageSize * 1000);
                 EventDataBatch resultEventBatch = new EventDataBatch(pageSize * 1000);
                 EventDataBatch fileAclEventBatch = new EventDataBatch(pageSize * 1000);
-
+                string currentPageContinuation = "";
                 await foreach (var page in pages)
                 {
                     currentPage++;
+                    currentPageContinuation = page.ContinuationToken;
                     foreach (var pathItem in page.Values)
                     {
                         // if it's a directory, just send a message to get it processed.
@@ -238,40 +241,37 @@ namespace YellowSubmarine
                         }
                         i++;
                     }
-                    // if we get here we have processed a full page
-                    // Send the batch (we might have processed only files - so check batch has some contents and send if it does.
-                    if (requestEventBatch.Count > 0)
-                    {
-                        await inspectionRequestClient.SendAsync(requestEventBatch);
-                    }
-                    if (resultEventBatch.Count > 0)
-                    {
-                        await inspectionResultClient.SendAsync(resultEventBatch);
-                    }
-                    if (fileAclEventBatch.Count > 0)
-                    {
-                        await fileAclClient.SendAsync(fileAclEventBatch);
-                    }
-                    // if there is another page to come, place a record on queue to process it.
-                    if (!string.IsNullOrEmpty(page.ContinuationToken))
-                    {
-                        directoryEvent = new EventData(Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(
-                        new DirectoryExplorationRequest
-                        {
-                            StartPath = dir.StartPath,
-                            RequestId = dir.RequestId,
-                            ContinuationToken = page.ContinuationToken,
-                            PageNumber = currentPage
-                        }))); ;
-                        await inspectionRequestClient.SendAsync(directoryEvent);
-                    }
-                    else
-                    {
-                        // no continuation token - just stop
-                    }
-
                     // We have processed this page and queued a request to process the next one - end execution
                     break;
+                }
+
+                // if we get here we have processed a full page
+                // Send the batch (we might have processed only files - so check batch has some contents and send if it does.
+                if (requestEventBatch.Count > 0)
+                {
+                    await inspectionRequestClient.SendAsync(requestEventBatch);
+                }
+                if (resultEventBatch.Count > 0)
+                {
+                    await inspectionResultClient.SendAsync(resultEventBatch);
+                }
+                if (fileAclEventBatch.Count > 0)
+                {
+                    await fileAclClient.SendAsync(fileAclEventBatch);
+                }
+
+                // if there is another page to come, place a record on queue to process it.
+                if (!string.IsNullOrEmpty(currentPageContinuation))
+                {
+                    directoryEvent = new EventData(Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(
+                    new DirectoryExplorationRequest
+                    {
+                        StartPath = dir.StartPath,
+                        RequestId = dir.RequestId,
+                        ContinuationToken = currentPageContinuation,
+                        PageNumber = currentPage
+                    }))); ;
+                    await inspectionRequestClient.SendAsync(directoryEvent);
                 }
             }
             else 
