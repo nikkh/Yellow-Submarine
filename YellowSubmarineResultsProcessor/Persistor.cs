@@ -22,13 +22,17 @@ namespace YellowSubmarineResultsProcessor
         readonly Metric blobsWritten;
         readonly Metric eventHubBatchLatency;
         readonly int maxThroughput;
+        private static readonly CloudBlobClient blobClient = StorageAccount.NewFromConnectionString(Environment.GetEnvironmentVariable("OutputStorageConnection")).CreateCloudBlobClient();
         private static readonly string endpoint = Environment.GetEnvironmentVariable("CosmosEndPointUrl");
         private static readonly string cosmosMaxThroughput = Environment.GetEnvironmentVariable("CosmosMaxThroughput"); 
         private static readonly string authKey = Environment.GetEnvironmentVariable("CosmosAuthorizationKey");
         private static readonly CosmosClient cosmosClient = new CosmosClient(endpoint, authKey);
         private static readonly string cosmosDatabaseId = Environment.GetEnvironmentVariable("CosmosDatabaseId");
         private static readonly string cosmosContainerId = Environment.GetEnvironmentVariable("CosmosContainerId");
+        private static readonly string useCosmos = Environment.GetEnvironmentVariable("UseCosmos");
+        private readonly bool cosmosRequired = false;
         Container resultsContainer;
+        CloudBlobContainer resultBlobContainer;
         private Database cosmosDb;
         public Persistor(TelemetryConfiguration telemetryConfig) 
         {
@@ -40,12 +44,17 @@ namespace YellowSubmarineResultsProcessor
             telemetryClient = new TelemetryClient(telemetryConfig);
             blobsWritten = telemetryClient.GetMetric("Explore Results Blobs Written");
             eventHubBatchLatency = telemetryClient.GetMetric("Explore Results Batch Latency");
+
+            if (!string.IsNullOrEmpty(useCosmos)) 
+            {
+                if (useCosmos.ToUpper() == "TRUE") cosmosRequired = true;
+            } 
         }
 
         [FunctionName("Persistor")]
         public async Task Run([EventHubTrigger("%ResultsHub%", Connection = "EventHubConnection")] EventData[] events, ILogger log)
         {
-            cosmosDb = await cosmosClient.CreateDatabaseIfNotExistsAsync(cosmosDatabaseId);
+            
             var exceptions = new List<Exception>();
             double totalLatency = 0;
             foreach (EventData eventData in events)
@@ -57,7 +66,8 @@ namespace YellowSubmarineResultsProcessor
                     totalLatency += nowTimeUTC.Subtract(enqueuedTimeUtc).TotalMilliseconds;
                     string messageBody = Encoding.UTF8.GetString(eventData.Body.Array, eventData.Body.Offset, eventData.Body.Count);
                     ExplorationResult result = JsonConvert.DeserializeObject<ExplorationResult>(messageBody);
-                    await SaveToCosmosAsync(result);
+                    if (cosmosRequired) await SaveToCosmosAsync(result);
+                    await SaveToBlobAsync(result);
                     blobsWritten.TrackValue(1);
                     await Task.Yield();
                 }
@@ -81,8 +91,21 @@ namespace YellowSubmarineResultsProcessor
 
         }
 
+        private async Task SaveToBlobAsync(ExplorationResult result)
+        {
+            if (resultBlobContainer == null) resultBlobContainer = blobClient.GetContainerReference(result.RequestId);
+            string extension = "file";
+            if (result.Type == InspectionResultType.Directory) extension = "directory";
+            var blobName = $"{result.RequestId}-{result.Path.Replace('/', '-')}.{extension}";
+            var blob = resultBlobContainer.GetBlockBlobReference(blobName);
+            var payload = JsonConvert.SerializeObject(result);
+            MemoryStream stream = new MemoryStream(Encoding.UTF8.GetBytes(payload));
+            await blob.UploadFromStreamAsync(stream);
+        }
+
         private async Task SaveToCosmosAsync(ExplorationResult result)
         {
+            cosmosDb = await cosmosClient.CreateDatabaseIfNotExistsAsync(cosmosDatabaseId);
             if (resultsContainer == null) 
             {
                 ContainerProperties containerProperties = new ContainerProperties($"{cosmosContainerId}-{result.RequestId}", partitionKeyPath: "/PartitionKey");

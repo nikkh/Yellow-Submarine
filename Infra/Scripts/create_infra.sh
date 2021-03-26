@@ -25,6 +25,7 @@ resultsHub="results"
 requestsHub="requests"
 fileAclHub="fileacls"
 pageSize="5000"
+useCosmos="FALSE"
 
 echo "Resource Group $resourceGroupName"
 az group create -n $resourceGroupName -l $location --tags PendingDelete=true 
@@ -61,4 +62,4 @@ az functionapp create  --name $resultsFunctionApp   --consumption-plan-location 
 az functionapp create  --name $fileAclFunctionApp   --consumption-plan-location $location  --storage-account $fileAclStorageAccountName  -g $resourceGroupName --functions-version 3
 az webapp config appsettings set -g $resourceGroupName -n $processorFunctionApp --settings EventHubConnection=$requestsEventHubConnection DRAIN=$drain dataLakeSasToken=$dataLakeSasToken dataLakeUri=$dataLakeUri FileSystemName=$fileSystemName OutputStorageConnection=$resultsStorageAccountConnectionString RequestsEventHubFullConnectionString=$requestsEventHubFullConnectionString ResultsEventHubFullConnectionString=$resultsEventHubFullConnectionString FileAclEventHubFullConnectionString=$fileAclEventHubFullConnectionString ResultsHub=$resultsHub RequestsHub=$requestsHub PageSize=$pageSize
 az webapp config appsettings set -g $resourceGroupName -n $fileAclFunctionApp --settings EventHubConnection=$fileAclEventHubConnection FileAclHub=$fileAclHub DRAIN=$drain dataLakeSasToken=$dataLakeSasToken dataLakeUri=$dataLakeUri FileSystemName=$fileSystemName ResultsEventHubFullConnectionString=$resultsEventHubFullConnectionString
-az webapp config appsettings set -g $resourceGroupName -n $resultsFunctionApp --settings EventHubConnection=$resultsEventHubConnection ResultsHub=$resultsHub CosmosDatabaseId=$cosmosDatabaseId CosmosContainerId=$cosmosContainerId CosmosEndPointUrl=$cosmosEndpointUrl CosmosAuthorizationKey=$cosmosAuthorizationKey CosmosMaxThroughput=$cosmosMaxThroughput
+az webapp config appsettings set -g $resourceGroupName -n $resultsFunctionApp --settings EventHubConnection=$resultsEventHubConnection ResultsHub=$resultsHub CosmosDatabaseId=$cosmosDatabaseId CosmosContainerId=$cosmosContainerId CosmosEndPointUrl=$cosmosEndpointUrl CosmosAuthorizationKey=$cosmosAuthorizationKey CosmosMaxThroughput=$cosmosMaxThroughput OutputStorageConnection=$resultsStorageAccountConnectionString UseCosmos=$useCosmos

@@ -92,7 +92,7 @@ namespace YellowSubmarine
             }
 
             telemetryClient.TrackEvent($"Deep Dive Request triggered by Http POST", new Dictionary<string, string>() { { "directory", startPath } });
-            string requestId = Guid.NewGuid().ToString();
+            string requestId = $"{Guid.NewGuid().ToString()}";
             string tMessage = $"A deep dive into data lake {serviceUri} was requested. Exploration will start at path {parameters.StartPath}.  The tracking Id for your results is {requestId}";
             var outputContainer = blobClient.GetContainerReference(requestId);
             await outputContainer.CreateIfNotExistsAsync();
