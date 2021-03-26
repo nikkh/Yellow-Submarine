@@ -6,6 +6,7 @@ using System.Text;
 using System.Threading.Tasks;
 using Microsoft.ApplicationInsights;
 using Microsoft.ApplicationInsights.Extensibility;
+using Microsoft.Azure.Cosmos;
 using Microsoft.Azure.EventHubs;
 using Microsoft.Azure.Storage.Blob;
 using Microsoft.Azure.WebJobs;
@@ -22,7 +23,12 @@ namespace YellowSubmarineResultsProcessor
         readonly Metric blobsWritten;
         readonly Metric eventHubBatchLatency;
         CloudBlobContainer resultContainer;
-
+        private static readonly string endpoint = Environment.GetEnvironmentVariable("CosmosEndPointUrl");
+        private static readonly string authKey = Environment.GetEnvironmentVariable("CosmosAuthorizationKey");
+        private static readonly CosmosClient cosmosClient = new CosmosClient(endpoint, authKey);
+        private static readonly string cosmosDatabaseId = Environment.GetEnvironmentVariable("CosmosDatabaseId");
+        private static readonly string cosmosContainerId = Environment.GetEnvironmentVariable("CosmosContainerId");
+        private Database cosmosDb;
         public Persistor(TelemetryConfiguration telemetryConfig) 
         {
             telemetryClient = new TelemetryClient(telemetryConfig);
@@ -34,6 +40,7 @@ namespace YellowSubmarineResultsProcessor
        
         public async Task Run([EventHubTrigger("%ResultsHub%", Connection = "EventHubConnection")] EventData[] events, ILogger log)
         {
+            cosmosDb = await cosmosClient.CreateDatabaseIfNotExistsAsync(cosmosDatabaseId);
             var exceptions = new List<Exception>();
             double totalLatency = 0;
             foreach (EventData eventData in events)
@@ -45,13 +52,7 @@ namespace YellowSubmarineResultsProcessor
                     totalLatency += nowTimeUTC.Subtract(enqueuedTimeUtc).TotalMilliseconds;
                     string messageBody = Encoding.UTF8.GetString(eventData.Body.Array, eventData.Body.Offset, eventData.Body.Count);
                     ExplorationResult result = JsonConvert.DeserializeObject<ExplorationResult>(messageBody);
-                    if (resultContainer == null) resultContainer = blobClient.GetContainerReference(result.RequestId);
-                    string extension = "f";
-                    if (result.Type == InspectionResultType.Directory) extension = "d";
-                    var blobName = $"{result.Path.Replace('/', '-')}.{extension}";
-                    var blob = resultContainer.GetBlockBlobReference(blobName);
-                    MemoryStream stream = new MemoryStream(Encoding.UTF8.GetBytes(messageBody));
-                    await blob.UploadFromStreamAsync(stream);
+                    await SaveToCosmosAsync(result);
                     blobsWritten.TrackValue(1);
                     await Task.Yield();
                 }
@@ -73,6 +74,17 @@ namespace YellowSubmarineResultsProcessor
                 throw exceptions.Single();
 
 
+        }
+
+        private async Task SaveToCosmosAsync(ExplorationResult result)
+        {
+            ContainerProperties containerProperties = new ContainerProperties(cosmosContainerId, partitionKeyPath: "/RequestId");
+            Container container = await cosmosDb.CreateContainerIfNotExistsAsync(containerProperties, throughput: 400);
+            await container.CreateItemAsync(result, new PartitionKey(result.RequestId),
+            new ItemRequestOptions()
+            {
+                EnableContentResponseOnWrite = false
+            });
         }
     }
 }
