@@ -23,7 +23,7 @@ namespace YellowSubmarineResultsProcessor
         readonly Metric eventHubBatchLatency;
         readonly int maxThroughput;
         private static readonly string endpoint = Environment.GetEnvironmentVariable("CosmosEndPointUrl");
-        private static readonly string cosmosMaxThroughput = Environment.GetEnvironmentVariable("CosmosMaxThroughput"; 
+        private static readonly string cosmosMaxThroughput = Environment.GetEnvironmentVariable("CosmosMaxThroughput"); 
         private static readonly string authKey = Environment.GetEnvironmentVariable("CosmosAuthorizationKey");
         private static readonly CosmosClient cosmosClient = new CosmosClient(endpoint, authKey);
         private static readonly string cosmosDatabaseId = Environment.GetEnvironmentVariable("CosmosDatabaseId");
