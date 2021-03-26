@@ -8,12 +8,17 @@ namespace YellowSubmarine.Common
     {
         private StringBuilder builder;
         private readonly string _id = Guid.NewGuid().ToString();
+        private readonly string _pk;
         public string id { get { return _id; } }
         public ExplorationResult() 
         {
             this.ResultDateTime = DateTime.UtcNow;
             builder = new StringBuilder();
+            Random r = new Random();
+            int randomNumber = r.Next(1, 1000);
+            _pk = randomNumber.ToString();
         }
+        public string PartitionKey { get { return _pk; } }
         public InspectionResultType Type { get; set; }
         public string Acls { get; set; }
         public string Path { get; set; }
