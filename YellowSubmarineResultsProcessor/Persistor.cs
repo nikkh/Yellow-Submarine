@@ -79,7 +79,7 @@ namespace YellowSubmarineResultsProcessor
                     totalLatency += nowTimeUTC.Subtract(enqueuedTimeUtc).TotalMilliseconds;
                     string messageBody = Encoding.UTF8.GetString(eventData.Body.Array, eventData.Body.Offset, eventData.Body.Count);
                     ExplorationResult result = JsonConvert.DeserializeObject<ExplorationResult>(messageBody);
-                    if (telemetryClient.Context.GlobalProperties["RequestId"] == null) telemetryClient.Context.GlobalProperties["RequestId"] = result.RequestId;
+                    telemetryClient.Context.GlobalProperties["RequestId"] = result.RequestId;
                     if (cosmosRequired) await SaveToCosmosAsync(result);
                     await SaveToBlobAsync(result);
                     messagesProcessed.TrackValue(1);

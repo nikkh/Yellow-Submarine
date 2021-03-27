@@ -160,7 +160,7 @@ namespace YellowSubmarine
                     var nowTimeUTC = DateTime.UtcNow;
                     totalLatency += nowTimeUTC.Subtract(enqueuedTimeUtc).TotalMilliseconds;
                     DirectoryExplorationRequest dir = JsonConvert.DeserializeObject<DirectoryExplorationRequest>(messageBody);
-                    if (telemetryClient.Context.GlobalProperties["RequestId"]==null) telemetryClient.Context.GlobalProperties["RequestId"] = dir.RequestId;
+                    telemetryClient.Context.GlobalProperties["RequestId"] = dir.RequestId;
                     log.LogDebug($"{ec.FunctionName}: Processing event {j} for path {dir.StartPath} Requestid: {dir.RequestId}");
                     await InspectDirectory(dir, log, ec.FunctionName);
                     messagesProcessed.TrackValue(1);
