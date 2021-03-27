@@ -38,7 +38,7 @@ namespace YellowSubmarineResultsProcessor
         private static readonly string cosmosContainerId = Environment.GetEnvironmentVariable("CosmosContainerId");
         private static readonly string useCosmos = Environment.GetEnvironmentVariable("UseCosmos");
         private readonly bool cosmosRequired = false;
-        Container resultsContainer;
+        Container resultsCosmosContainer;
         CloudBlobContainer resultBlobContainer;
         private Database cosmosDb;
         public Persistor(TelemetryConfiguration telemetryConfig) 
@@ -120,17 +120,26 @@ namespace YellowSubmarineResultsProcessor
         private async Task SaveToCosmosAsync(ExplorationResult result)
         {
             cosmosDb = await cosmosClient.CreateDatabaseIfNotExistsAsync(cosmosDatabaseId);
-            if (resultsContainer == null) 
+            if (resultsCosmosContainer == null) 
             {
                 ContainerProperties containerProperties = new ContainerProperties($"{cosmosContainerId}-{result.RequestId}", partitionKeyPath: "/PartitionKey");
-                resultsContainer = await cosmosDb.CreateContainerIfNotExistsAsync(containerProperties, ThroughputProperties.CreateAutoscaleThroughput(maxThroughput));
+                resultsCosmosContainer = await cosmosDb.CreateContainerIfNotExistsAsync(containerProperties, ThroughputProperties.CreateAutoscaleThroughput(maxThroughput));
             }
-            await resultsContainer.CreateItemAsync(result, new PartitionKey(result.PartitionKey),
-            new ItemRequestOptions()
+            try
             {
-                EnableContentResponseOnWrite = false
-            });
-            cosmosDocumentsWritten.TrackValue(1);
+                await resultsCosmosContainer.CreateItemAsync(result, new PartitionKey(result.PartitionKey),
+                new ItemRequestOptions()
+                {
+                    EnableContentResponseOnWrite = false
+                });
+                cosmosDocumentsWritten.TrackValue(1);
+            }
+            catch(CosmosException c)
+            {
+                telemetryClient.TrackException(c, new Dictionary<string, string> { { "path", result.Path} });
+                throw c;
+            }
+            
         }
     }
 }

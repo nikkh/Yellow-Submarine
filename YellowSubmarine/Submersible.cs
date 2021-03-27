@@ -20,6 +20,7 @@ using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
 using YellowSubmarine.Common;
 using Microsoft.Azure.Storage.Blob;
+using Microsoft.Azure.Cosmos;
 
 namespace YellowSubmarine
 {
@@ -58,6 +59,18 @@ namespace YellowSubmarine
         static Metric targetDepthAchieved;
         static Metric continuationPages;
 
+        private static readonly string endpoint = Environment.GetEnvironmentVariable("CosmosEndPointUrl");
+        private static readonly string cosmosMaxThroughput = Environment.GetEnvironmentVariable("CosmosMaxThroughput");
+        private static readonly string authKey = Environment.GetEnvironmentVariable("CosmosAuthorizationKey");
+        private static readonly CosmosClient cosmosClient = new CosmosClient(endpoint, authKey);
+        private static readonly string cosmosDatabaseId = Environment.GetEnvironmentVariable("CosmosDatabaseId");
+        private static readonly string cosmosContainerId = Environment.GetEnvironmentVariable("CosmosContainerId");
+        private static readonly string useCosmos = Environment.GetEnvironmentVariable("UseCosmos");
+        private readonly bool cosmosRequired = false;
+        Container resultsCosmosContainer;
+        private Database cosmosDb;
+        readonly int maxThroughput;
+
         public Submersible(TelemetryConfiguration telemetryConfig) 
         {
             telemetryClient = new TelemetryClient(telemetryConfig);
@@ -70,12 +83,21 @@ namespace YellowSubmarine
             targetDepthAchieved = telemetryClient.GetMetric("New Explore Target Depth Achieved");
             continuationPages = telemetryClient.GetMetric("New Explore Continuation Pages");
             if (!Int32.TryParse(defaultPageSize, out int ps)) pageSize = 5000; else pageSize = ps;
+            maxThroughput = 400;
+            if (!string.IsNullOrEmpty(cosmosMaxThroughput))
+            {
+                if (!int.TryParse(cosmosMaxThroughput, out int m)) maxThroughput = 400; else maxThroughput = m;
+            }
+            if (!string.IsNullOrEmpty(useCosmos))
+            {
+                if (useCosmos.ToUpper() == "TRUE") cosmosRequired = true;
+            }
         }
 
         
         [FunctionName("Dive")]
         public async Task<IActionResult> Dive(
-           [HttpTrigger(AuthorizationLevel.Function, "get", "post", Route = null)] HttpRequest req, ILogger log)
+           [HttpTrigger(AuthorizationLevel.Function, "get", "post", Route = null)] HttpRequest req, ILogger log, ExecutionContext ec)
         {
             string requestBody = await new StreamReader(req.Body).ReadToEndAsync();
             dynamic parameters = JsonConvert.DeserializeObject(requestBody);
@@ -91,14 +113,27 @@ namespace YellowSubmarine
                 if (!int.TryParse(parameters.TargetDepth.ToString(), out int td)) targetDepth = int.MaxValue; else targetDepth = td;
             }
 
-            telemetryClient.TrackEvent($"Deep Dive Request triggered by Http POST", new Dictionary<string, string>() { { "directory", startPath } });
+            telemetryClient.TrackEvent($"Directory Inspection was triggered by Http POST", new Dictionary<string, string>() { { "directory", startPath } });
             string requestId = $"{Guid.NewGuid().ToString()}";
             string tMessage = $"A deep dive into data lake {serviceUri} was requested. Exploration will start at path {parameters.StartPath}.  The tracking Id for your results is {requestId}";
             var outputContainer = blobClient.GetContainerReference(requestId);
             await outputContainer.CreateIfNotExistsAsync();
+            log.LogDebug($"{ec.FunctionName}: Storage container {outputContainer.Uri} was created for results");
+
+            if (cosmosRequired)
+            {
+                cosmosDb = await cosmosClient.CreateDatabaseIfNotExistsAsync(cosmosDatabaseId);
+                if (resultsCosmosContainer == null)
+                {
+                    ContainerProperties containerProperties = new ContainerProperties($"{cosmosContainerId}-{requestId}", partitionKeyPath: "/PartitionKey");
+                    resultsCosmosContainer = await cosmosDb.CreateContainerIfNotExistsAsync(containerProperties, ThroughputProperties.CreateAutoscaleThroughput(maxThroughput));
+                }
+                log.LogDebug($"{ec.FunctionName}: Cosmos Output is configured {resultsCosmosContainer.Id} was created for results in database {resultsCosmosContainer.Database.Id}");
+            }
             EventData ed = new EventData(Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(
                 new DirectoryExplorationRequest { StartPath = startPath, RequestId=requestId, TargetDepth=targetDepth })));
             await inspectionRequestClient.SendAsync(ed);
+            log.LogDebug($"{ec.FunctionName}: request to process directory {startPath} added to event hub {inspectionRequestClient.EventHubName}. Requestid: {requestId}");
             return new OkObjectResult(tMessage);
         }
 
@@ -153,7 +188,7 @@ namespace YellowSubmarine
             log.LogDebug($"{functionName}: inspecting directory {dir.StartPath} Requestid: {dir.RequestId}");
             var directoryClient = fileSystemClient.GetDirectoryClient(dir.StartPath);
             EventData directoryEvent;
-            Response<PathAccessControl> aclResult;
+            Azure.Response<PathAccessControl> aclResult;
 
             // if there is a continuation token, dont send the results again
             // they will have been sent on the first request
