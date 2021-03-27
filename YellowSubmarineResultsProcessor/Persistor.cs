@@ -43,6 +43,7 @@ namespace YellowSubmarineResultsProcessor
         private Database cosmosDb;
         public Persistor(TelemetryConfiguration telemetryConfig) 
         {
+            telemetryClient = new TelemetryClient(telemetryConfig);
             blobsWritten = telemetryClient.GetMetric("New Results Blobs Written");
             eventHubBatchLatency = telemetryClient.GetMetric("New Results Batch Latency");
             eventHubBatchSize = telemetryClient.GetMetric("New Results Event Batch Size");
@@ -55,9 +56,7 @@ namespace YellowSubmarineResultsProcessor
             {
                 if (!int.TryParse(cosmosMaxThroughput, out int m)) maxThroughput = 400; else maxThroughput = m;
             }
-            telemetryClient = new TelemetryClient(telemetryConfig);
-
-
+            
             if (!string.IsNullOrEmpty(useCosmos)) 
             {
                 if (useCosmos.ToUpper() == "TRUE") cosmosRequired = true;
