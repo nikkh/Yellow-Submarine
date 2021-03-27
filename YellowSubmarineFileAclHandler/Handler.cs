@@ -69,7 +69,8 @@ namespace YellowSubmarineFileAclHandler
                     totalLatency += nowTimeUTC.Subtract(enqueuedTimeUtc).TotalMilliseconds;
                     string messageBody = Encoding.UTF8.GetString(eventData.Body.Array, eventData.Body.Offset, eventData.Body.Count);
                     DirectoryExplorationRequest dir = JsonConvert.DeserializeObject<DirectoryExplorationRequest>(messageBody);
-                    log.LogInformation($"XXXX> MessageBody is {messageBody}");
+                    if (telemetryClient.Context.GlobalProperties["RequestId"] == null) telemetryClient.Context.GlobalProperties["RequestId"] = dir.RequestId;
+                    
                     var fileClient = fileSystemClient.GetFileClient(dir.StartPath);
                     var aclResult = await fileClient.GetAccessControlAsync();
                     var fileResult = new ExplorationResult
