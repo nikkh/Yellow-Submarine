@@ -5,7 +5,7 @@ on:
       alias:
         description: 'Application alias'     
         required: true
-        default: 'fargo'
+        default: 'spider'
 
   
 jobs:
