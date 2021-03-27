@@ -103,30 +103,33 @@ namespace YellowSubmarine
         }
 
         [FunctionName("Explore")]
-        public async Task Explore([EventHubTrigger("%RequestsHub%", Connection = "EventHubConnection")] EventData[] events, ILogger log)
+        public async Task Explore([EventHubTrigger("%RequestsHub%", Connection = "EventHubConnection")] EventData[] events, ILogger log, ExecutionContext ec)
         {
             functionInvocations.TrackValue(1);
             if (drain == "TRUE")
             {
                 return;
             }
-
+            log.LogDebug($"{ec.FunctionName}: A batch of {events.Count()} events was received");
             double totalLatency = 0;
             var exceptions = new List<Exception>();
             eventHubBatchSize.TrackValue(events.Count());
+            int j = 0;
             foreach (EventData eventData in events)
             {
                 try
                 {
-                    
+                    j++;
                     string messageBody = Encoding.UTF8.GetString(eventData.Body.Array, eventData.Body.Offset, eventData.Body.Count);
                     var enqueuedTimeUtc = eventData.SystemProperties.EnqueuedTimeUtc;
                     var nowTimeUTC = DateTime.UtcNow;
                     totalLatency += nowTimeUTC.Subtract(enqueuedTimeUtc).TotalMilliseconds;
                     DirectoryExplorationRequest dir = JsonConvert.DeserializeObject<DirectoryExplorationRequest>(messageBody);
-                    await InspectDirectory(dir, log);
+                    log.LogDebug($"{ec.FunctionName}: Processing event {j} for path {dir.StartPath} Requestid: {dir.RequestId}");
+                    await InspectDirectory(dir, log, ec.FunctionName);
                     messagesProcessed.TrackValue(1);
                     await Task.Yield();
+                    log.LogDebug($"{ec.FunctionName}: Finished processing {j} for path {dir.StartPath} Requestid: {dir.RequestId}");
                 }
                 catch (Exception e)
                 {
@@ -134,7 +137,7 @@ namespace YellowSubmarine
                     exceptions.Add(e);
                 }
             }
-
+            log.LogDebug($"{ec.FunctionName}: Finished processing {j} events for batch");
             eventHubBatchLatency.TrackValue(totalLatency / events.Length / 1000);
 
             // Once processing of the batch is complete, if any messages in the batch failed processing throw an exception so that there is a record of the failure.
@@ -145,9 +148,9 @@ namespace YellowSubmarine
                 throw exceptions.Single();
         }
 
-        private async Task InspectDirectory(DirectoryExplorationRequest dir, ILogger log)
+        private async Task InspectDirectory(DirectoryExplorationRequest dir, ILogger log, string functionName)
         {
-
+            log.LogDebug($"{functionName}: inspecting directory {dir.StartPath} Requestid: {dir.RequestId}");
             var directoryClient = fileSystemClient.GetDirectoryClient(dir.StartPath);
             EventData directoryEvent;
             Response<PathAccessControl> aclResult;
@@ -156,6 +159,7 @@ namespace YellowSubmarine
             // they will have been sent on the first request
             if (string.IsNullOrEmpty(dir.ContinuationToken))
             {
+                log.LogDebug($"{functionName}: inspecting directory {dir.StartPath}. No continuation token found. Requestid: {dir.RequestId}");
                 // Get ACL for this directory
                 var directoryProps = await directoryClient.GetPropertiesAsync();
                 aclResult = await directoryClient.GetAccessControlAsync();
@@ -169,19 +173,22 @@ namespace YellowSubmarine
                     ModifiedDateTime = directoryProps.Value.LastModified.UtcDateTime.ToString(),
                     Depth = dir.CurrentDepth
                 };
-
+                log.LogDebug($"{functionName}: retrieved properties and Acls for {dir.StartPath}. Requestid: {dir.RequestId}");
                 // Send result for this directory
                 directoryEvent = new EventData(Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(directoryResult)));
                 directoriesProcessed.TrackValue(1);
                 await inspectionResultClient.SendAsync(directoryEvent);
+                log.LogDebug($"{functionName}: {dir.StartPath} data sent to results. Requestid: {dir.RequestId}");
             }
             else
             {
+                log.LogDebug($"{functionName}: inspecting directory {dir.StartPath}. Continuation token {dir.ContinuationToken} Requestid: {dir.RequestId}");
                 continuationPages.TrackValue(1);
             }
             // if target depth has been reached, stop.
             if (dir.CurrentDepth < dir.TargetDepth)
             {
+                log.LogDebug($"{functionName}: directory {dir.StartPath}. Current Depth {dir.CurrentDepth}, Target Depth {dir.TargetDepth}. Processing continues! Requestid: {dir.RequestId}");
                 // Get directory contents and loop through them
                 AsyncPageable<PathItem> pathItems = directoryClient.GetPathsAsync(false);
                 int i = 1;
@@ -191,12 +198,15 @@ namespace YellowSubmarine
                 IAsyncEnumerable<Page<PathItem>> pages;
                 if (string.IsNullOrEmpty(dir.ContinuationToken))
                 {
+                    log.LogDebug($"{functionName}: directory {dir.StartPath}. No continuation token, current page {currentPage}. Requestid: {dir.RequestId}");
                     pages = pathItems.AsPages(null, pageSize);
                 }
                 else
                 {
+                    log.LogDebug($"{functionName}: directory {dir.StartPath}. Continuation token {dir.ContinuationToken}, current page {currentPage}. Requestid: {dir.RequestId}");
                     pages = pathItems.AsPages(dir.ContinuationToken, pageSize);
                 }
+
                 EventDataBatch requestEventBatch = new EventDataBatch(pageSize * 1000);
                 EventDataBatch resultEventBatch = new EventDataBatch(pageSize * 1000);
                 EventDataBatch fileAclEventBatch = new EventDataBatch(pageSize * 1000);
@@ -204,22 +214,27 @@ namespace YellowSubmarine
                 await foreach (var page in pages)
                 {
                     currentPage++;
+                    log.LogDebug($"{functionName}: directory {dir.StartPath}. Next Page has been read. Current page {currentPage}. Requestid: {dir.RequestId}");
                     currentPageContinuation = page.ContinuationToken;
+                    log.LogDebug($"{functionName}: directory {dir.StartPath}. New continuation token is {currentPageContinuation}. Requestid: {dir.RequestId}");
                     foreach (var pathItem in page.Values)
                     {
+                        log.LogDebug($"{functionName}: directory {dir.StartPath}. Processing {currentPage} #{i} Path {pathItem.Name}. Requestid: {dir.RequestId}");
                         // if it's a directory, just send a message to get it processed.
                         if ((bool)pathItem.IsDirectory)
                         {
-                            directoryEvent = new EventData(Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(
+                            var payload = JsonConvert.SerializeObject(
                                 new DirectoryExplorationRequest
                                 {
                                     StartPath = pathItem.Name,
                                     RequestId = dir.RequestId,
                                     TargetDepth = dir.TargetDepth,
                                     CurrentDepth = dir.CurrentDepth + 1
-                                }))
-                            ); 
+                                });
+                            log.LogDebug($"{functionName}: directory {dir.StartPath}. Found a sub-directory {pathItem.Name}.  Details are {payload}. Requestid: {dir.RequestId}");
+                            directoryEvent = new EventData(Encoding.UTF8.GetBytes(payload)); 
                             if (!requestEventBatch.TryAdd(directoryEvent)) throw new Exception("Maximum batch size of event hub batch exceeded!");
+                            log.LogDebug($"{functionName}: request to process directory {pathItem.Name} added to event hub request batch. Requestid: {dir.RequestId}");
                         }
                         // if it's a file, get its acls
                         else
@@ -233,15 +248,21 @@ namespace YellowSubmarine
                                 ModifiedDateTime = pathItem.LastModified.UtcDateTime.ToString(),
                                 
                             };
+                            
                             var messageString = JsonConvert.SerializeObject(fileResult);
-                            log.LogInformation($"YYYY> MessageString is {messageString}");
+                            log.LogDebug($"{functionName}: directory {dir.StartPath}. Found a file {pathItem.Name}.  Details are {messageString}. Requestid: {dir.RequestId}");
+                            
                             EventData fileAclEvent = new EventData(Encoding.UTF8.GetBytes(messageString));
                             if (!fileAclEventBatch.TryAdd(fileAclEvent)) throw new Exception("Maximum batch size of event hub batch exceeded!");
+                            log.LogDebug($"{functionName}: request to process file {pathItem.Name} added to event hub fileAcl batch. Requestid: {dir.RequestId}");
                             filesProcessed.TrackValue(1);
                         }
                         i++;
+                        log.LogDebug($"{functionName}: done with {pathItem.Name} Requestid: {dir.RequestId}");
+                        
                     }
                     // We have processed this page and queued a request to process the next one - end execution
+                    log.LogDebug($"{functionName}: break at the end of first page - other pages will be done by other invocations Requestid: {dir.RequestId}");
                     break;
                 }
 
@@ -249,20 +270,24 @@ namespace YellowSubmarine
                 // Send the batch (we might have processed only files - so check batch has some contents and send if it does.
                 if (requestEventBatch.Count > 0)
                 {
+                    log.LogDebug($"{functionName}: Sending batch of {requestEventBatch.Count} events to {inspectionRequestClient.EventHubName} Requestid: {dir.RequestId}");
                     await inspectionRequestClient.SendAsync(requestEventBatch);
                 }
                 if (resultEventBatch.Count > 0)
                 {
+                    log.LogDebug($"{functionName}: Sending batch of {resultEventBatch.Count} events to {inspectionResultClient.EventHubName} Requestid: {dir.RequestId}");
                     await inspectionResultClient.SendAsync(resultEventBatch);
                 }
                 if (fileAclEventBatch.Count > 0)
                 {
+                    log.LogDebug($"{functionName}: Sending batch of {fileAclEventBatch.Count} events to {fileAclClient.EventHubName} Requestid: {dir.RequestId}");
                     await fileAclClient.SendAsync(fileAclEventBatch);
                 }
 
                 // if there is another page to come, place a record on queue to process it.
                 if (!string.IsNullOrEmpty(currentPageContinuation))
                 {
+                   log.LogDebug($"{functionName}: Another page to come for {dir.StartPath}. Will submit request to process it. {fileAclClient.EventHubName} Requestid: {dir.RequestId}");
                     directoryEvent = new EventData(Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(
                     new DirectoryExplorationRequest
                     {
@@ -272,10 +297,12 @@ namespace YellowSubmarine
                         PageNumber = currentPage
                     }))); ;
                     await inspectionRequestClient.SendAsync(directoryEvent);
+                    log.LogDebug($"{functionName}: Sending page continuation request ({dir.StartPath}, {currentPageContinuation}) event to {inspectionRequestClient.EventHubName} Requestid: {dir.RequestId}");
                 }
             }
             else 
             {
+                log.LogDebug($"{functionName}: directory {dir.StartPath}. Current Depth {dir.CurrentDepth}, Target Depth {dir.TargetDepth}. Processing Stops! Requestid: {dir.RequestId}");
                 targetDepthAchieved.TrackValue(1);
             }
         }
