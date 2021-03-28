@@ -330,7 +330,9 @@ namespace YellowSubmarine
                         StartPath = dir.StartPath,
                         RequestId = dir.RequestId,
                         ContinuationToken = currentPageContinuation,
-                        PageNumber = currentPage
+                        PageNumber = currentPage,
+                        TargetDepth = dir.TargetDepth
+
                     }))); ;
                     await inspectionRequestClient.SendAsync(directoryEvent);
                     log.LogDebug($"{functionName}: Sending page continuation request ({dir.StartPath}, {currentPageContinuation}) event to {inspectionRequestClient.EventHubName} Requestid: {dir.RequestId}");
