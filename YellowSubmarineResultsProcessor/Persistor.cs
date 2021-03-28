@@ -27,7 +27,7 @@ namespace YellowSubmarineResultsProcessor
         readonly Metric blobsWritten;
         readonly Metric cosmosDocumentsWritten;
 
-
+        static readonly string drain = Environment.GetEnvironmentVariable("DRAIN").ToUpper();
         readonly int maxThroughput;
         private static readonly CloudBlobClient blobClient = StorageAccount.NewFromConnectionString(Environment.GetEnvironmentVariable("OutputStorageConnection")).CreateCloudBlobClient();
         private static readonly string endpoint = Environment.GetEnvironmentVariable("CosmosEndPointUrl");
@@ -66,6 +66,10 @@ namespace YellowSubmarineResultsProcessor
         [FunctionName("Persistor")]
         public async Task Run([EventHubTrigger("%ResultsHub%", Connection = "EventHubConnection")] EventData[] events, ILogger log)
         {
+            if (drain == "TRUE")
+            {
+                return;
+            }
             functionInvocations.TrackValue(1);
             eventHubBatchSize.TrackValue(events.Length);
             var exceptions = new List<Exception>();
