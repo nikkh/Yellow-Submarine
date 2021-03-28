@@ -242,7 +242,8 @@ namespace YellowSubmarine
                     log.LogDebug($"{functionName}: directory {dir.StartPath}. Continuation token {dir.ContinuationToken}, current page {currentPage}. Requestid: {dir.RequestId}");
                     pages = pathItems.AsPages(dir.ContinuationToken, pageSize);
                 }
-
+                string lastPastProcessed = "";
+                bool lastPathCheck = true;
                 EventDataBatch requestEventBatch = new EventDataBatch(pageSize * 1000);
                 EventDataBatch resultEventBatch = new EventDataBatch(pageSize * 1000);
                 EventDataBatch fileAclEventBatch = new EventDataBatch(pageSize * 1000);
@@ -255,6 +256,11 @@ namespace YellowSubmarine
                     log.LogDebug($"{functionName}: directory {dir.StartPath}. New continuation token is {currentPageContinuation}. Requestid: {dir.RequestId}");
                     foreach (var pathItem in page.Values)
                     {
+                        if (lastPathCheck)
+                        {
+                            log.LogDebug($"{functionName}: LASTPATHCHECK: new page. last path {dir.LastPathProcessed} current path {pathItem.Name}. Requestid: {dir.RequestId}");
+                            lastPathCheck = false;
+                        }
                         log.LogDebug($"{functionName}: directory {dir.StartPath}. Processing {currentPage} #{i} Path {pathItem.Name}. Requestid: {dir.RequestId}");
                         // if it's a directory, just send a message to get it processed.
                         if ((bool)pathItem.IsDirectory)
@@ -295,10 +301,11 @@ namespace YellowSubmarine
                         }
                         i++;
                         log.LogDebug($"{functionName}: done with {pathItem.Name} Requestid: {dir.RequestId}");
-                        
+                        lastPastProcessed = pathItem.Name;
                     }
                     // We have processed this page and queued a request to process the next one - end execution
-                    log.LogDebug($"{functionName}: break at the end of first page - other pages will be done by other invocations Requestid: {dir.RequestId}");
+                    log.LogDebug($"{functionName}: break at the end of page - other pages will be done by other invocations Requestid: {dir.RequestId}");
+                    
                     break;
                 }
 
@@ -331,9 +338,10 @@ namespace YellowSubmarine
                         RequestId = dir.RequestId,
                         ContinuationToken = currentPageContinuation,
                         PageNumber = currentPage,
-                        TargetDepth = dir.TargetDepth
+                        TargetDepth = dir.TargetDepth,
+                        LastPathProcessed = lastPastProcessed
 
-                    }))); ;
+                    })));
                     await inspectionRequestClient.SendAsync(directoryEvent);
                     log.LogDebug($"{functionName}: Sending page continuation request ({dir.StartPath}, {currentPageContinuation}) event to {inspectionRequestClient.EventHubName} Requestid: {dir.RequestId}");
                 }
