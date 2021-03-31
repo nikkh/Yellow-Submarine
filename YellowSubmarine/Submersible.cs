@@ -199,7 +199,7 @@ namespace YellowSubmarine
             var directoryClient = fileSystemClient.GetDirectoryClient(dir.StartPath);
             EventData directoryEvent;
             Azure.Response<PathAccessControl> aclResult;
-
+            int itemsOnThisPage = 0;
             // if there is a continuation token, dont send the results again
             // they will have been sent on the first request
             if (string.IsNullOrEmpty(dir.ContinuationToken))
@@ -257,18 +257,20 @@ namespace YellowSubmarine
                 EventDataBatch resultEventBatch = new EventDataBatch(pageSize * 1000);
                 EventDataBatch fileAclEventBatch = new EventDataBatch(pageSize * 1000);
                 string currentPageContinuation = "";
+                
                 await foreach (var page in pages)
                 {
                     currentPage++;
+                    itemsOnThisPage = 0;
                     log.LogDebug($"{functionName}: directory {dir.StartPath}. Next Page has been read. Current page {currentPage}. Requestid: {dir.RequestId}");
                     currentPageContinuation = page.ContinuationToken;
                     log.LogDebug($"{functionName}: directory {dir.StartPath}. New continuation token is {currentPageContinuation}. ");
                     foreach (var pathItem in page.Values)
                     {
-                        
+                        itemsOnThisPage++;
                         if (lastPathCheck)
                         {
-                            log.LogWarning($"{dir.RequestId}::{ec.InvocationId}: current page={currentPage}. last={dir.LastPathProcessed} current={pathItem.Name}");
+                           // log.LogWarning($"{dir.RequestId}::{ec.InvocationId}: current page={currentPage}. last={dir.LastPathProcessed} current={pathItem.Name}");
                             lastPathCheck = false;
                         }
                         log.LogDebug($"{functionName}: directory {dir.StartPath}. Processing {currentPage} #{i} Path {pathItem.Name}. Requestid: {dir.RequestId}");
@@ -281,7 +283,10 @@ namespace YellowSubmarine
                                     StartPath = pathItem.Name,
                                     RequestId = dir.RequestId,
                                     TargetDepth = dir.TargetDepth,
-                                    CurrentDepth = dir.CurrentDepth + 1
+                                    CurrentDepth = dir.CurrentDepth,
+                                    ContinuationToken = null,
+                                    PageNumber = 0,
+                                    LastPathProcessed = null
                                 });
                             log.LogDebug($"{functionName}: directory {dir.StartPath}. Found a sub-directory {pathItem.Name}.  Details are {payload}. Requestid: {dir.RequestId}");
                             directoryEvent = new EventData(Encoding.UTF8.GetBytes(payload)); 
@@ -352,13 +357,13 @@ namespace YellowSubmarine
 
                     })));
                    // pathTrack.Add($"{ec.InvocationId}: processed {dir.LastPathProcessed}. Requesting new page.");
-                    log.LogWarning($"{dir.RequestId}::{ec.InvocationId}: dir={dir.StartPath}, processed {lastPathProcessed}. Requesting new page.");
+                   // log.LogWarning($"{dir.RequestId}::{ec.InvocationId}: dir={dir.StartPath}, processed {lastPathProcessed}. Requesting new page.");
                     await inspectionRequestClient.SendAsync(directoryEvent);
                     log.LogDebug($"{functionName}: Sending page continuation request ({directoryEvent}, {currentPageContinuation}) event to {inspectionRequestClient.EventHubName} Requestid: {dir.RequestId}");
                 }
                 else
                 {
-                    log.LogWarning($"{dir.RequestId}::{ec.InvocationId}: dir={dir.StartPath} has {pageSize * currentPage} items");
+                    log.LogWarning($"{dir.RequestId}::{ec.InvocationId}: dir={dir.StartPath}, page {currentPage} has {itemsOnThisPage} items");
                 }
             }
             else 
