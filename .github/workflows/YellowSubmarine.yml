@@ -1,11 +1,11 @@
-name: Yellow Submarine
+name: Controller
 on: 
   workflow_dispatch:
     inputs:
       alias:
         description: 'Application alias'     
         required: true
-        default: 'spider'
+        default: 'olive'
 
   
 jobs:
