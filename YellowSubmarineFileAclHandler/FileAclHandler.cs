@@ -20,6 +20,7 @@ namespace YellowSubmarineFileAclHandler
     {
         private readonly TelemetryClient telemetryClient;
         static readonly string drain = Environment.GetEnvironmentVariable("DRAIN").ToUpper();
+        static readonly string skipResults = Environment.GetEnvironmentVariable("SkipResults").ToUpper();
         static readonly Uri serviceUri = new Uri(Environment.GetEnvironmentVariable("DataLakeUri"));
         static readonly string fileSystemName = Environment.GetEnvironmentVariable("FileSystemName");
         static readonly string dataLakeSasToken = Environment.GetEnvironmentVariable("DataLakeSasToken");
@@ -95,7 +96,7 @@ namespace YellowSubmarineFileAclHandler
                     exceptions.Add(e);
                 }
             }
-            if (resultEventBatch.Count > 0)
+            if ((resultEventBatch.Count > 0) && (skipResults != "TRUE"))
             {
                 await inspectionResultClient.SendAsync(resultEventBatch);
             }

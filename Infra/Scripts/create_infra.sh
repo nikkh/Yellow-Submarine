@@ -9,6 +9,7 @@ fileSystemName="${DATALAKE_FILESYSTEM}"
 resourceGroupName="$applicationName-rg"
 processorFunctionApp="$applicationName-processor-func"
 fileAclFunctionApp="$applicationName-fileacl-func"
+dirAclFunctionApp="$applicationName-diracl-func"
 resultsFunctionApp="$applicationName-results-func"
 processorStorageAccountName="$applicationName$RANDOM"requests
 resultsStorageAccountName="$applicationName$RANDOM"results
@@ -26,8 +27,12 @@ drain="FALSE"
 resultsHub="results"
 requestsHub="requests"
 fileAclHub="fileacls"
+dirAclHub="diracls"
 pageSize="5000"
 useCosmos="FALSE"
+skipDirAcls="FALSE"
+skipFileAcls="FALSE"
+skipResults="FALSE"
 
 echo "Resource Group $resourceGroupName"
 az group create -n $resourceGroupName -l $location --tags PendingDelete=true 
@@ -70,9 +75,9 @@ resultsStorageAccountConnectionString=$(az storage account show-connection-strin
 az functionapp create  --name $processorFunctionApp   --consumption-plan-location $location  --storage-account $processorStorageAccountName  -g $resourceGroupName --functions-version 3
 az functionapp create  --name $resultsFunctionApp   --consumption-plan-location $location  --storage-account $resultsStorageAccountName  -g $resourceGroupName --functions-version 3
 az functionapp create  --name $fileAclFunctionApp   --consumption-plan-location $location  --storage-account $fileAclStorageAccountName  -g $resourceGroupName --functions-version 3
-az functionapp create  --name $ddirAclFunctionApp   --consumption-plan-location $location  --storage-account $dirAclStorageAccountName  -g $resourceGroupName --functions-version 3
+az functionapp create  --name $dirAclFunctionApp   --consumption-plan-location $location  --storage-account $dirAclStorageAccountName  -g $resourceGroupName --functions-version 3
 
-az webapp config appsettings set -g $resourceGroupName -n $processorFunctionApp --settings EventHubConnection=$requestsEventHubConnection DRAIN=$drain dataLakeSasToken=$dataLakeSasToken dataLakeUri=$dataLakeUri FileSystemName=$fileSystemName OutputStorageConnection=$resultsStorageAccountConnectionString RequestsEventHubFullConnectionString=$requestsEventHubFullConnectionString ResultsEventHubFullConnectionString=$resultsEventHubFullConnectionString FileAclEventHubFullConnectionString=$fileAclEventHubFullConnectionString ResultsHub=$resultsHub RequestsHub=$requestsHub PageSize=$pageSize CosmosDatabaseId=$cosmosDatabaseId CosmosContainerId=$cosmosContainerId CosmosEndPointUrl=$cosmosEndpointUrl CosmosAuthorizationKey=$cosmosAuthorizationKey CosmosMaxThroughput=$cosmosMaxThroughput UseCosmos=$useCosmos
-az webapp config appsettings set -g $resourceGroupName -n $fileAclFunctionApp --settings EventHubConnection=$fileAclEventHubConnection FileAclHub=$fileAclHub DRAIN=$drain dataLakeSasToken=$dataLakeSasToken dataLakeUri=$dataLakeUri FileSystemName=$fileSystemName ResultsEventHubFullConnectionString=$resultsEventHubFullConnectionString
-az webapp config appsettings set -g $resourceGroupName -n $dirAclFunctionApp --settings EventHubConnection=$dirAclEventHubConnection DirAclHub=$dirAclHub DRAIN=$drain dataLakeSasToken=$dataLakeSasToken dataLakeUri=$dataLakeUri FileSystemName=$fileSystemName ResultsEventHubFullConnectionString=$resultsEventHubFullConnectionString
+az webapp config appsettings set -g $resourceGroupName -n $processorFunctionApp --settings EventHubConnection=$requestsEventHubConnection DRAIN=$drain dataLakeSasToken=$dataLakeSasToken dataLakeUri=$dataLakeUri FileSystemName=$fileSystemName OutputStorageConnection=$resultsStorageAccountConnectionString RequestsEventHubFullConnectionString=$requestsEventHubFullConnectionString  FileAclEventHubFullConnectionString=$fileAclEventHubFullConnectionString DirAclEventHubFullConnectionString=$dirAclEventHubFullConnectionString RequestsHub=$requestsHub PageSize=$pageSize CosmosDatabaseId=$cosmosDatabaseId CosmosContainerId=$cosmosContainerId CosmosEndPointUrl=$cosmosEndpointUrl CosmosAuthorizationKey=$cosmosAuthorizationKey CosmosMaxThroughput=$cosmosMaxThroughput UseCosmos=$useCosmos SkipDirAcls=$skipDirAcls SkipFileAcls=$skipFileAcls
+az webapp config appsettings set -g $resourceGroupName -n $fileAclFunctionApp --settings SkipResults=$skipResults EventHubConnection=$fileAclEventHubConnection FileAclHub=$fileAclHub DRAIN=$drain dataLakeSasToken=$dataLakeSasToken dataLakeUri=$dataLakeUri FileSystemName=$fileSystemName ResultsEventHubFullConnectionString=$resultsEventHubFullConnectionString
+az webapp config appsettings set -g $resourceGroupName -n $dirAclFunctionApp --settings SkipResults=$skipResults EventHubConnection=$dirAclEventHubConnection DirAclHub=$dirAclHub DRAIN=$drain dataLakeSasToken=$dataLakeSasToken dataLakeUri=$dataLakeUri FileSystemName=$fileSystemName ResultsEventHubFullConnectionString=$resultsEventHubFullConnectionString
 az webapp config appsettings set -g $resourceGroupName -n $resultsFunctionApp --settings EventHubConnection=$resultsEventHubConnection ResultsHub=$resultsHub OutputStorageConnection=$resultsStorageAccountConnectionString CosmosDatabaseId=$cosmosDatabaseId CosmosContainerId=$cosmosContainerId CosmosEndPointUrl=$cosmosEndpointUrl CosmosAuthorizationKey=$cosmosAuthorizationKey CosmosMaxThroughput=$cosmosMaxThroughput UseCosmos=$useCosmos
