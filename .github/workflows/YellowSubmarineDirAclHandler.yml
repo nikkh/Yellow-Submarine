@@ -24,11 +24,11 @@ jobs:
         dotnet-version: 3.1.101
     - id: step2
       name: Build Results Processor
-      run: dotnet build YellowSubmarineFileAclHandler/YellowSubmarineDirAclHandler.csproj --configuration Debug
+      run: dotnet build YellowSubmarineDirAclHandler/YellowSubmarineDirAclHandler.csproj --configuration Debug
 
     - id: step3
       name: Results Processor
-      run: dotnet publish YellowSubmarineFileAclHandler/YellowSubmarineDirAclHandler.csproj -c Debug -o ${{env.DOTNET_ROOT}}/YellowSubmarineDirAclHandler-app 
+      run: dotnet publish YellowSubmarineDirAclHandler/YellowSubmarineDirAclHandler.csproj -c Debug -o ${{env.DOTNET_ROOT}}/YellowSubmarineDirAclHandler-app 
 
     - id: step4
       name: 'Deploy Dir Acl Handler to Function App'
