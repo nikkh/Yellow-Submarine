@@ -16,7 +16,7 @@ using YellowSubmarine.Common;
 
 namespace YellowSubmarineFileAclHandler
 {
-    public class Handler
+    public class FileAclHandler
     {
         private readonly TelemetryClient telemetryClient;
         static readonly string drain = Environment.GetEnvironmentVariable("DRAIN").ToUpper();
@@ -37,7 +37,7 @@ namespace YellowSubmarineFileAclHandler
         readonly Metric messagesProcessed;
 
 
-        public Handler(TelemetryConfiguration telemetryConfig)
+        public FileAclHandler(TelemetryConfiguration telemetryConfig)
         {
             telemetryClient = new TelemetryClient(telemetryConfig);
             eventHubBatchLatency = telemetryClient.GetMetric("New FileAcl Event Batch Latency");
