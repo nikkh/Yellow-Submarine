@@ -20,6 +20,7 @@ namespace YellowSubmarineDirAclHandler
     {
         private readonly TelemetryClient telemetryClient;
         static readonly string drain = Environment.GetEnvironmentVariable("DRAIN").ToUpper();
+        static readonly string skipResults = Environment.GetEnvironmentVariable("SkipResults").ToUpper();
         static readonly Uri serviceUri = new Uri(Environment.GetEnvironmentVariable("DataLakeUri"));
         static readonly string fileSystemName = Environment.GetEnvironmentVariable("FileSystemName");
         static readonly string dataLakeSasToken = Environment.GetEnvironmentVariable("DataLakeSasToken");
@@ -72,7 +73,6 @@ namespace YellowSubmarineDirAclHandler
                     var directoryClient = fileSystemClient.GetDirectoryClient(dir.StartPath);
                     var aclResult = await directoryClient.GetAccessControlAsync();
                     var directoryProps = await directoryClient.GetPropertiesAsync();
-                    aclResult = await directoryClient.GetAccessControlAsync();
                     var directoryResult = new ExplorationResult { 
                         Type = InspectionResultType.Directory,
                         Path = dir.StartPath,
@@ -94,7 +94,7 @@ namespace YellowSubmarineDirAclHandler
                     exceptions.Add(e);
                 }
             }
-            if (resultEventBatch.Count > 0)
+            if ((resultEventBatch.Count > 0) && (skipResults != "TRUE"))
             {
                 await inspectionResultClient.SendAsync(resultEventBatch);
             }

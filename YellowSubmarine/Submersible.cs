@@ -26,10 +26,15 @@ namespace YellowSubmarine
 {
     public class Submersible
     {
-        private static readonly List<string> pathTrack;
+        
         private static readonly CloudBlobClient blobClient = StorageAccount.NewFromConnectionString(Environment.GetEnvironmentVariable("OutputStorageConnection")).CreateCloudBlobClient();
         private readonly TelemetryClient telemetryClient;
         static readonly string drain = Environment.GetEnvironmentVariable("DRAIN").ToUpper();
+
+        static readonly string skipFileAcls = Environment.GetEnvironmentVariable("SkipFileAcls").ToUpper();
+        static readonly string skipDirAcls = Environment.GetEnvironmentVariable("SkipDirAcls").ToUpper();
+
+
         static readonly Uri serviceUri = new Uri(Environment.GetEnvironmentVariable("DataLakeUri"));
         static readonly string fileSystemName = Environment.GetEnvironmentVariable("FileSystemName");
         static readonly string dataLakeSasToken = Environment.GetEnvironmentVariable("DataLakeSasToken");
@@ -40,13 +45,12 @@ namespace YellowSubmarine
         static readonly DataLakeFileSystemClient fileSystemClient = serviceClient.GetFileSystemClient(fileSystemName);
        
         static readonly string requestsPath = Environment.GetEnvironmentVariable("RequestsHub");
-        static readonly string resultsPath = Environment.GetEnvironmentVariable("ResultsHub");
         static readonly EventHubClient inspectionRequestClient =
             EventHubClient.CreateFromConnectionString(
                 Environment.GetEnvironmentVariable("RequestsEventHubFullConnectionString"));
-        static readonly EventHubClient inspectionResultClient =
+        static readonly EventHubClient dirAclClientClient =
             EventHubClient.CreateFromConnectionString(
-                Environment.GetEnvironmentVariable("ResultsEventHubFullConnectionString"));
+                Environment.GetEnvironmentVariable("DirAclEventHubFullConnectionString"));
         static readonly EventHubClient fileAclClient =
             EventHubClient.CreateFromConnectionString(
                 Environment.GetEnvironmentVariable("FileAclEventHubFullConnectionString"));
@@ -72,11 +76,7 @@ namespace YellowSubmarine
         private Database cosmosDb;
         readonly int maxThroughput;
 
-        static Submersible() 
-        {
-            pathTrack = new List<string>();
-        }
-
+        
         public Submersible(TelemetryConfiguration telemetryConfig) 
         {
             
@@ -170,7 +170,7 @@ namespace YellowSubmarine
                     
                     telemetryClient.Context.GlobalProperties["RequestId"] = dir.RequestId;
                     log.LogDebug($"{ec.FunctionName}: Processing event {j} for path {dir.StartPath} Requestid: {dir.RequestId}");
-                    await InspectDirectory(dir, log, ec.FunctionName, ec);
+                    await InspectDirectory(dir, log, ec);
                     messagesProcessed.TrackValue(1);
                     await Task.Yield();
                     log.LogDebug($"{ec.FunctionName}: Finished processing {j} for path {dir.StartPath} Requestid: {dir.RequestId}");
@@ -192,48 +192,42 @@ namespace YellowSubmarine
                 throw exceptions.Single();
         }
 
-        private async Task InspectDirectory(DirectoryExplorationRequest dir, ILogger log, string functionName, ExecutionContext ec)
+        private async Task InspectDirectory(DirectoryExplorationRequest dir, ILogger log, ExecutionContext ec)
         {
             
             log.LogDebug($"{ec.InvocationId}: inspecting directory {dir.StartPath} Requestid: {dir.RequestId}");
             var directoryClient = fileSystemClient.GetDirectoryClient(dir.StartPath);
             EventData directoryEvent;
-            Azure.Response<PathAccessControl> aclResult;
             int itemsOnThisPage = 0;
             // if there is a continuation token, dont send the results again
             // they will have been sent on the first request
             if (string.IsNullOrEmpty(dir.ContinuationToken))
             {
-                log.LogDebug($"{functionName}: inspecting directory {dir.StartPath}. No continuation token found. Requestid: {dir.RequestId}");
-                // Get ACL for this directory
-                var directoryProps = await directoryClient.GetPropertiesAsync();
-                aclResult = await directoryClient.GetAccessControlAsync();
-                var directoryResult = new ExplorationResult
+                log.LogDebug($"{ec.FunctionName}: inspecting directory {dir.StartPath}. No continuation token found. Requestid: {dir.RequestId}");
+                var directoryAclRequest = new DirectoryExplorationRequest()
                 {
-                    Type = InspectionResultType.Directory,
-                    Path = dir.StartPath,
-                    Acls = JsonConvert.SerializeObject(aclResult.Value.AccessControlList),
-                    RequestId = dir.RequestId,
-                    ETag = directoryProps.Value.ETag.ToString(),
-                    ModifiedDateTime = directoryProps.Value.LastModified.UtcDateTime.ToString(),
-                    Depth = dir.CurrentDepth
+                     StartPath =  dir.StartPath,
+                     RequestId = dir.RequestId, 
+                     CurrentDepth = dir.CurrentDepth
                 };
-                log.LogDebug($"{functionName}: retrieved properties and Acls for {dir.StartPath}. Requestid: {dir.RequestId}");
                 // Send result for this directory
-                directoryEvent = new EventData(Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(directoryResult)));
+                directoryEvent = new EventData(Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(directoryAclRequest)));
                 directoriesProcessed.TrackValue(1);
-                await inspectionResultClient.SendAsync(directoryEvent);
-                log.LogDebug($"{functionName}: {dir.StartPath} data sent to results. Requestid: {dir.RequestId}");
+                if (skipDirAcls != "TRUE")
+                { 
+                    await dirAclClientClient.SendAsync(directoryEvent); 
+                }
+                log.LogDebug($"{ec.FunctionName}: {dir.StartPath} data sent to results. Requestid: {dir.RequestId}");
             }
             else
             {
-                log.LogDebug($"{functionName}: inspecting directory {dir.StartPath}. Continuation token {dir.ContinuationToken} Requestid: {dir.RequestId}");
+                log.LogDebug($"{ec.FunctionName}: inspecting directory {dir.StartPath}. Continuation token {dir.ContinuationToken} Requestid: {dir.RequestId}");
                 continuationPages.TrackValue(1);
             }
             // if target depth has been reached, stop.
             if (dir.CurrentDepth < dir.TargetDepth)
             {
-                log.LogDebug($"{functionName}: directory {dir.StartPath}. Current Depth {dir.CurrentDepth}, Target Depth {dir.TargetDepth}. Processing continues! Requestid: {dir.RequestId}");
+                log.LogDebug($"{ec.FunctionName}: directory {dir.StartPath}. Current Depth {dir.CurrentDepth}, Target Depth {dir.TargetDepth}. Processing continues! Requestid: {dir.RequestId}");
                 // Get directory contents and loop through them
                 AsyncPageable<PathItem> pathItems = directoryClient.GetPathsAsync(false);
                 int i = 1;
@@ -243,18 +237,17 @@ namespace YellowSubmarine
                 IAsyncEnumerable<Page<PathItem>> pages;
                 if (string.IsNullOrEmpty(dir.ContinuationToken))
                 {
-                    log.LogDebug($"{functionName}: directory {dir.StartPath}. No continuation token, current page {currentPage}. Requestid: {dir.RequestId}");
+                    log.LogDebug($"{ec.FunctionName}: directory {dir.StartPath}. No continuation token, current page {currentPage}. Requestid: {dir.RequestId}");
                     pages = pathItems.AsPages(null, pageSize);
                 }
                 else
                 {
-                    log.LogDebug($"{functionName}: directory {dir.StartPath}. Continuation token {dir.ContinuationToken}, current page {currentPage}. Requestid: {dir.RequestId}");
+                    log.LogDebug($"{ec.FunctionName}: directory {dir.StartPath}. Continuation token {dir.ContinuationToken}, current page {currentPage}. Requestid: {dir.RequestId}");
                     pages = pathItems.AsPages(dir.ContinuationToken, pageSize);
                 }
                 string lastPathProcessed = "";
-                bool lastPathCheck = true;
+
                 EventDataBatch requestEventBatch = new EventDataBatch(pageSize * 1000);
-                EventDataBatch resultEventBatch = new EventDataBatch(pageSize * 1000);
                 EventDataBatch fileAclEventBatch = new EventDataBatch(pageSize * 1000);
                 string currentPageContinuation = "";
                 
@@ -262,18 +255,14 @@ namespace YellowSubmarine
                 {
                     currentPage++;
                     itemsOnThisPage = 0;
-                    log.LogDebug($"{functionName}: directory {dir.StartPath}. Next Page has been read. Current page {currentPage}. Requestid: {dir.RequestId}");
+                    log.LogDebug($"{ec.FunctionName}: directory {dir.StartPath}. Next Page has been read. Current page {currentPage}. Requestid: {dir.RequestId}");
                     currentPageContinuation = page.ContinuationToken;
-                    log.LogDebug($"{functionName}: directory {dir.StartPath}. New continuation token is {currentPageContinuation}. ");
+                    log.LogDebug($"{ec.FunctionName}: directory {dir.StartPath}. New continuation token is {currentPageContinuation}. ");
                     foreach (var pathItem in page.Values)
                     {
                         itemsOnThisPage++;
-                        if (lastPathCheck)
-                        {
-                           // log.LogWarning($"{dir.RequestId}::{ec.InvocationId}: current page={currentPage}. last={dir.LastPathProcessed} current={pathItem.Name}");
-                            lastPathCheck = false;
-                        }
-                        log.LogDebug($"{functionName}: directory {dir.StartPath}. Processing {currentPage} #{i} Path {pathItem.Name}. Requestid: {dir.RequestId}");
+
+                        log.LogDebug($"{ec.FunctionName}: directory {dir.StartPath}. Processing {currentPage} #{i} Path {pathItem.Name}. Requestid: {dir.RequestId}");
                         // if it's a directory, just send a message to get it processed.
                         if ((bool)pathItem.IsDirectory)
                         {
@@ -288,10 +277,10 @@ namespace YellowSubmarine
                                     PageNumber = 0,
                                     LastPathProcessed = null
                                 });
-                            log.LogDebug($"{functionName}: directory {dir.StartPath}. Found a sub-directory {pathItem.Name}.  Details are {payload}. Requestid: {dir.RequestId}");
+                            log.LogDebug($"{ec.FunctionName}: directory {dir.StartPath}. Found a sub-directory {pathItem.Name}.  Details are {payload}. Requestid: {dir.RequestId}");
                             directoryEvent = new EventData(Encoding.UTF8.GetBytes(payload)); 
                             if (!requestEventBatch.TryAdd(directoryEvent)) throw new Exception("Maximum batch size of event hub batch exceeded!");
-                            log.LogDebug($"{functionName}: request to process directory {pathItem.Name} added to event hub request batch. Requestid: {dir.RequestId}");
+                            log.LogDebug($"{ec.FunctionName}: request to process directory {pathItem.Name} added to event hub request batch. Requestid: {dir.RequestId}");
                         }
                         // if it's a file, get its acls
                         else
@@ -307,19 +296,19 @@ namespace YellowSubmarine
                             };
                             
                             var messageString = JsonConvert.SerializeObject(fileResult);
-                            log.LogDebug($"{functionName}: directory {dir.StartPath}. Found a file {pathItem.Name}.  Details are {messageString}. Requestid: {dir.RequestId}");
+                            log.LogDebug($"{ec.FunctionName}: directory {dir.StartPath}. Found a file {pathItem.Name}.  Details are {messageString}. Requestid: {dir.RequestId}");
                             
                             EventData fileAclEvent = new EventData(Encoding.UTF8.GetBytes(messageString));
                             if (!fileAclEventBatch.TryAdd(fileAclEvent)) throw new Exception("Maximum batch size of event hub batch exceeded!");
-                            log.LogDebug($"{functionName}: request to process file {pathItem.Name} added to event hub fileAcl batch. Requestid: {dir.RequestId}");
+                            log.LogDebug($"{ec.FunctionName}: request to process file {pathItem.Name} added to event hub fileAcl batch. Requestid: {dir.RequestId}");
                             filesProcessed.TrackValue(1);
                         }
                         i++;
-                        log.LogDebug($"{functionName}: done with {pathItem.Name} Requestid: {dir.RequestId}");
+                        log.LogDebug($"{ec.FunctionName}: done with {pathItem.Name} Requestid: {dir.RequestId}");
                         lastPathProcessed = pathItem.Name;
                     }
                     // We have processed this page and queued a request to process the next one - end execution
-                    log.LogDebug($"{functionName}: break at the end of page - other pages will be done by other invocations Requestid: {dir.RequestId}");
+                    log.LogDebug($"{ec.FunctionName}: break at the end of page - other pages will be done by other invocations Requestid: {dir.RequestId}");
                     break;
                 }
 
@@ -327,24 +316,20 @@ namespace YellowSubmarine
                 // Send the batch (we might have processed only files - so check batch has some contents and send if it does.
                 if (requestEventBatch.Count > 0)
                 {
-                    log.LogDebug($"{functionName}: Sending batch of {requestEventBatch.Count} events to {inspectionRequestClient.EventHubName} Requestid: {dir.RequestId}");
+                    log.LogDebug($"{ec.FunctionName}: Sending batch of {requestEventBatch.Count} events to {inspectionRequestClient.EventHubName} Requestid: {dir.RequestId}");
                     await inspectionRequestClient.SendAsync(requestEventBatch);
                 }
-                if (resultEventBatch.Count > 0)
+                
+                if ((fileAclEventBatch.Count > 0) && (skipFileAcls != "TRUE"))
                 {
-                  //  log.LogDebug($"{functionName}: Sending batch of {resultEventBatch.Count} events to {inspectionResultClient.EventHubName} Requestid: {dir.RequestId}");
-                  //  await inspectionResultClient.SendAsync(resultEventBatch);
-                }
-                if (fileAclEventBatch.Count > 0)
-                {
-                  //  log.LogDebug($"{functionName}: Sending batch of {fileAclEventBatch.Count} events to {fileAclClient.EventHubName} Requestid: {dir.RequestId}");
-                  //  await fileAclClient.SendAsync(fileAclEventBatch);
+                  log.LogDebug($"{ec.FunctionName}: Sending batch of {fileAclEventBatch.Count} events to {fileAclClient.EventHubName} Requestid: {dir.RequestId}");
+                  await fileAclClient.SendAsync(fileAclEventBatch);
                 }
 
                 // if there is another page to come, place a record on queue to process it.
                 if (!string.IsNullOrEmpty(currentPageContinuation))
                 {
-                   log.LogDebug($"{functionName}: Another page to come for {dir.StartPath}. Will submit request to process it. {inspectionRequestClient.EventHubName} Requestid: {dir.RequestId}");
+                   log.LogDebug($"{ec.FunctionName}: Another page to come for {dir.StartPath}. Will submit request to process it. {inspectionRequestClient.EventHubName} Requestid: {dir.RequestId}");
                     directoryEvent = new EventData(Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(
                     new DirectoryExplorationRequest
                     {
@@ -359,7 +344,7 @@ namespace YellowSubmarine
                    // pathTrack.Add($"{ec.InvocationId}: processed {dir.LastPathProcessed}. Requesting new page.");
                    // log.LogWarning($"{dir.RequestId}::{ec.InvocationId}: dir={dir.StartPath}, processed {lastPathProcessed}. Requesting new page.");
                     await inspectionRequestClient.SendAsync(directoryEvent);
-                    log.LogDebug($"{functionName}: Sending page continuation request ({directoryEvent}, {currentPageContinuation}) event to {inspectionRequestClient.EventHubName} Requestid: {dir.RequestId}");
+                    log.LogDebug($"{ec.FunctionName}: Sending page continuation request ({directoryEvent}, {currentPageContinuation}) event to {inspectionRequestClient.EventHubName} Requestid: {dir.RequestId}");
                 }
                 else
                 {
@@ -369,7 +354,7 @@ namespace YellowSubmarine
             else 
             {
                 
-                log.LogDebug($"{functionName}: directory {dir.StartPath}. Current Depth {dir.CurrentDepth}, Target Depth {dir.TargetDepth}. Processing Stops! Requestid: {dir.RequestId}");
+                log.LogDebug($"{ec.FunctionName}: directory {dir.StartPath}. Current Depth {dir.CurrentDepth}, Target Depth {dir.TargetDepth}. Processing Stops! Requestid: {dir.RequestId}");
                 targetDepthAchieved.TrackValue(1);
             }
         }
