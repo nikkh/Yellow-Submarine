@@ -73,13 +73,13 @@ namespace YellowSubmarineDirAclHandler
                     var directoryClient = fileSystemClient.GetDirectoryClient(dir.StartPath);
                     var aclResult = await directoryClient.GetAccessControlAsync();
                     var directoryProps = await directoryClient.GetPropertiesAsync();
-                    var directoryResult = new ExplorationResult { 
+                    var directoryResult = new ExplorationResult {
                         Type = InspectionResultType.Directory,
                         Path = dir.StartPath,
                         Acls = JsonConvert.SerializeObject(aclResult.Value.AccessControlList),
                         RequestId = dir.RequestId,
-                        ETag = dir.ETag,
-                        ModifiedDateTime = dir.ModifiedDateTime,
+                        ETag = directoryProps.Value.ETag.ToString(),
+                        ModifiedDateTime = directoryProps.Value.LastModified.ToString(),
                         Depth = dir.CurrentDepth
                     };
                     EventData dirEvent = new EventData(Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(directoryResult)));
