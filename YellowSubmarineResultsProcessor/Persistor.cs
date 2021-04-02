@@ -4,10 +4,10 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using Azure.Messaging.EventHubs;
 using Microsoft.ApplicationInsights;
 using Microsoft.ApplicationInsights.Extensibility;
 using Microsoft.Azure.Cosmos;
-using Microsoft.Azure.EventHubs;
 using Microsoft.Azure.Storage.Blob;
 using Microsoft.Azure.WebJobs;
 using Microsoft.Extensions.Logging;
@@ -78,10 +78,10 @@ namespace YellowSubmarineResultsProcessor
             {
                 try
                 {
-                    var enqueuedTimeUtc = eventData.SystemProperties.EnqueuedTimeUtc;
+                    DateTime enqueuedTimeUtc = eventData.EnqueuedTime.UtcDateTime;
                     var nowTimeUTC = DateTime.UtcNow;
                     totalLatency += nowTimeUTC.Subtract(enqueuedTimeUtc).TotalMilliseconds;
-                    string messageBody = Encoding.UTF8.GetString(eventData.Body.Array, eventData.Body.Offset, eventData.Body.Count);
+                    string messageBody = Encoding.UTF8.GetString(eventData.EventBody.ToArray());
                     ExplorationResult result = JsonConvert.DeserializeObject<ExplorationResult>(messageBody);
                     telemetryClient.Context.GlobalProperties["RequestId"] = result.RequestId;
                     if (cosmosRequired) await SaveToCosmosAsync(result);

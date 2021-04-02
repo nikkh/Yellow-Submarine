@@ -5,10 +5,11 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using Azure;
+using Azure.Messaging.EventHubs;
+using Azure.Messaging.EventHubs.Producer;
 using Azure.Storage.Files.DataLake;
 using Microsoft.ApplicationInsights;
 using Microsoft.ApplicationInsights.Extensibility;
-using Microsoft.Azure.EventHubs;
 using Microsoft.Azure.WebJobs;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
@@ -28,9 +29,9 @@ namespace YellowSubmarineDirAclHandler
         static readonly DataLakeServiceClient serviceClient = new DataLakeServiceClient(serviceUri, new AzureSasCredential(dataLakeSasToken));
         static readonly DataLakeFileSystemClient fileSystemClient = serviceClient.GetFileSystemClient(fileSystemName);
 
-         static readonly EventHubClient inspectionResultClient =
-            EventHubClient.CreateFromConnectionString(
-                Environment.GetEnvironmentVariable("ResultsEventHubFullConnectionString"));
+        static readonly EventHubProducerClient inspectionResultClient = 
+            new EventHubProducerClient(Environment.GetEnvironmentVariable("ResultsEventHubFullConnectionString"), 
+                new EventHubProducerClientOptions {  RetryOptions = new EventHubsRetryOptions { MaximumRetries=0 } });
        
         readonly Metric eventHubBatchSize;
         readonly Metric eventHubBatchLatency;
@@ -58,15 +59,15 @@ namespace YellowSubmarineDirAclHandler
             eventHubBatchSize.TrackValue(events.Length);
             var exceptions = new List<Exception>();
             double totalLatency = 0;
-            EventDataBatch resultEventBatch = new EventDataBatch(5000 * 1000);
+            EventDataBatch resultEventBatch = await inspectionResultClient.CreateBatchAsync();
             foreach (EventData eventData in events)
             {
                 try
                 {
-                    var enqueuedTimeUtc = eventData.SystemProperties.EnqueuedTimeUtc;
+                    DateTime enqueuedTimeUtc = eventData.EnqueuedTime.UtcDateTime;
                     var nowTimeUTC = DateTime.UtcNow;
                     totalLatency += nowTimeUTC.Subtract(enqueuedTimeUtc).TotalMilliseconds;
-                    string messageBody = Encoding.UTF8.GetString(eventData.Body.Array, eventData.Body.Offset, eventData.Body.Count);
+                    string messageBody = Encoding.UTF8.GetString(eventData.EventBody.ToArray());
                     DirectoryExplorationRequest dir = JsonConvert.DeserializeObject<DirectoryExplorationRequest>(messageBody);
                     telemetryClient.Context.GlobalProperties["RequestId"] = dir.RequestId;
 
