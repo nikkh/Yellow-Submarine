@@ -188,7 +188,7 @@ namespace YellowSubmarine
                     var dir = JsonConvert.DeserializeObject<DirectoryExplorationRequest>(messageBody);
                     await InspectDirectoryAsync(dir, log, ec);
                     messagesProcessed.TrackValue(1, dir.RequestId);
-                    await LogToSql(dir);
+                    if (logToSql == "TRUE") await LogToSql(dir);
                     await Task.Yield();
                 }
                 catch (Exception e)
@@ -360,6 +360,7 @@ namespace YellowSubmarine
         {
             using (SqlConnection connection = new SqlConnection(sqlConnectionString))
             {
+                connection.Open();
                 SqlCommand command = connection.CreateCommand();
                 command.Connection = connection;
                 string insertClause = $"Insert into ProcessingLog (RequestId, Path, ProcessingDateTime";
