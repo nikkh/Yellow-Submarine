@@ -17,8 +17,8 @@
   "logging": {
     "LogLevel": {
       "Default": "Information",
-      "Microsoft": "Warning",
-      "Microsoft.Hosting.Lifetime": "Warning"
+      "Microsoft": "Information",
+      "Microsoft.Hosting.Lifetime": "Information"
     },
     "applicationInsights": {
       "samplingSettings": {
