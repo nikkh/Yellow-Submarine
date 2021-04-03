@@ -95,11 +95,12 @@ namespace YellowSubmarine
             eventHubBatchSize = telemetryClient.GetMetric("Processor Event Batch Size");
             eventHubBatchLatency = telemetryClient.GetMetric("Processor Event Batch Latency");
             functionInvocations = telemetryClient.GetMetric("Processor Functions Invoked");
-            messagesProcessed = telemetryClient.GetMetric("Processor Messages Processed");
-            directoriesProcessed = telemetryClient.GetMetric("Processor Directories Processed");
-            filesProcessed = telemetryClient.GetMetric("Processor Files Processed");
-            targetDepthAchieved = telemetryClient.GetMetric("Processor Target Depth Achieved");
-            continuationPages = telemetryClient.GetMetric("Processor Continuation Pages");
+
+            messagesProcessed = telemetryClient.GetMetric("Processor Messages Processed", "RequestId");
+            directoriesProcessed = telemetryClient.GetMetric("Processor Directories Processed", "RequestId");
+            filesProcessed = telemetryClient.GetMetric("Processor Files Processed", "RequestId");
+            targetDepthAchieved = telemetryClient.GetMetric("Processor Target Depth Achieved", "RequestId");
+            continuationPages = telemetryClient.GetMetric("Processor Continuation Pages", "RequestId");
             if (!Int32.TryParse(defaultPageSize, out int ps)) pageSize = 2500; else pageSize = ps;
             maxThroughput = 400;
             if (!string.IsNullOrEmpty(cosmosMaxThroughput))
@@ -207,7 +208,6 @@ namespace YellowSubmarine
         private async Task InspectDirectoryAsync(DirectoryExplorationRequest dir, ILogger log, ExecutionContext ec)
         {
             
-            log.LogDebug($"{ec.InvocationId}: inspecting directory {dir.StartPath} Requestid: {dir.RequestId}");
             var directoryClient = fileSystemClient.GetDirectoryClient(dir.StartPath);
             EventData directoryEvent;
             int itemsOnThisPage = 0;
@@ -219,7 +219,7 @@ namespace YellowSubmarine
             }
             else
             {
-                continuationPages.TrackValue(1);
+                continuationPages.TrackValue(1, dir.RequestId);
             }
             // if target depth has been reached, stop.
             if (dir.CurrentDepth < dir.TargetDepth)
@@ -330,7 +330,7 @@ namespace YellowSubmarine
             }
             else 
             {
-                targetDepthAchieved.TrackValue(1);
+                targetDepthAchieved.TrackValue(1, dir.RequestId);
             }
         }
 
