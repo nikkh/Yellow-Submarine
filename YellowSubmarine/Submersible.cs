@@ -23,6 +23,7 @@ using Microsoft.Azure.Cosmos;
 using Microsoft.Azure.Storage.Queue;
 using Azure.Messaging.EventHubs.Producer;
 using Azure.Messaging.EventHubs;
+using System.Data.SqlClient;
 
 namespace YellowSubmarine
 {
@@ -30,12 +31,13 @@ namespace YellowSubmarine
     {
         
         private static readonly CloudBlobClient blobClient = StorageAccount.NewFromConnectionString(Environment.GetEnvironmentVariable("OutputStorageConnection")).CreateCloudBlobClient();
-        
+        private static readonly string sqlConnectionString = Environment.GetEnvironmentVariable("SQLConnectionString");
         private readonly TelemetryClient telemetryClient;
         static readonly string drain = Environment.GetEnvironmentVariable("DRAIN").ToUpper();
 
         static readonly string skipFileAcls = Environment.GetEnvironmentVariable("SkipFileAcls").ToUpper();
         static readonly string skipDirAcls = Environment.GetEnvironmentVariable("SkipDirAcls").ToUpper();
+        static readonly string logToSql = Environment.GetEnvironmentVariable("LogToSql").ToUpper();
 
 
         static readonly Uri serviceUri = new Uri(Environment.GetEnvironmentVariable("DataLakeUri"));
@@ -186,6 +188,7 @@ namespace YellowSubmarine
                     var dir = JsonConvert.DeserializeObject<DirectoryExplorationRequest>(messageBody);
                     await InspectDirectoryAsync(dir, log, ec);
                     messagesProcessed.TrackValue(1, dir.RequestId);
+                    await LogToSql(dir);
                     await Task.Yield();
                 }
                 catch (Exception e)
@@ -350,6 +353,21 @@ namespace YellowSubmarine
                 var directoryEvent = new EventData(Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(directoryAclRequest)));
                 if (!dirAclEventBatch.TryAdd(directoryEvent)) throw new Exception("Maximum batch size of event hub batch exceeded!");
                 await dirAclClient.SendAsync(dirAclEventBatch);
+            }
+        }
+
+        private async Task LogToSql(DirectoryExplorationRequest dir)
+        {
+            using (SqlConnection connection = new SqlConnection(sqlConnectionString))
+            {
+                SqlCommand command = connection.CreateCommand();
+                command.Connection = connection;
+                string insertClause = $"Insert into ProcessingLog (RequestId, Path, ProcessingDateTime";
+                string valuesClause = $" VALUES ('{dir.RequestId}', '{dir.StartPath}','{DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss.fff")}'";
+                insertClause += ") ";
+                valuesClause += ")";
+                command.CommandText = insertClause + valuesClause;
+                await command.ExecuteNonQueryAsync();
             }
         }
     }
