@@ -1,5 +1,18 @@
 {
   "functionTimeout": "00:10:00",
+  "extensions": {
+    "eventHubs": {
+      "batchCheckpointFrequency": 1,
+      "eventProcessorOptions": {
+        "maxBatchSize": 256,
+        "prefetchCount": 512
+      },
+      "initialOffsetOptions": {
+        "type": "fromStart",
+        "enqueuedTimeUtc": ""
+      }
+    }
+  },
   "version": "2.0",
   "logging": {
     "LogLevel": {
