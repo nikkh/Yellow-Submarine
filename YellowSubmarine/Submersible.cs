@@ -190,7 +190,7 @@ namespace YellowSubmarine
                     var dir = JsonConvert.DeserializeObject<DirectoryExplorationRequest>(messageBody);
                     await InspectDirectoryAsync(dir, log, ec);
                     messagesProcessed.TrackValue(1, dir.RequestId);
-                    if (logToSql == "TRUE") await LogToSql(dir);
+                    // if (logToSql == "TRUE") await LogToSql(dir);
                     await Task.Yield();
                 }
                 catch (Exception e)
@@ -221,6 +221,8 @@ namespace YellowSubmarine
             if (string.IsNullOrEmpty(dir.ContinuationToken))
             {
                 await QueueDirAclRequestAsync(dir);
+                ExplorationResult er = await GetDirectoryExplorationResultAsync(dir);
+                await UpsertResults(er);
             }
             else
             {
@@ -294,6 +296,9 @@ namespace YellowSubmarine
                             EventData fileAclEvent = new EventData(Encoding.UTF8.GetBytes(messageString));
                             if (!fileAclEventBatch.TryAdd(fileAclEvent)) throw new Exception("Maximum batch size of event hub batch exceeded!");
                             filesProcessed.TrackValue(1, dir.RequestId);
+                            // the new way of doing it....
+                            ExplorationResult er = await GetFileExplorationResultAsync(dir);
+                            await UpsertResults(er);
                         }
                         i++;
                         lastPathProcessed = pathItem.Name;
@@ -339,6 +344,42 @@ namespace YellowSubmarine
             }
         }
 
+        private async Task<ExplorationResult> GetDirectoryExplorationResultAsync(DirectoryExplorationRequest dir)
+        {
+            var directoryClient = fileSystemClient.GetDirectoryClient(dir.StartPath);
+            var aclResult = await directoryClient.GetAccessControlAsync();
+            var directoryProps = await directoryClient.GetPropertiesAsync();
+            var result = new ExplorationResult
+            {
+                Type = InspectionResultType.Directory,
+                Path = dir.StartPath,
+                Acls = JsonConvert.SerializeObject(aclResult.Value.AccessControlList),
+                RequestId = dir.RequestId,
+                ETag = directoryProps.Value.ETag.ToString(),
+                ModifiedDateTime = directoryProps.Value.LastModified.ToString(),
+                Depth = dir.CurrentDepth
+            };
+            return result;
+        }
+
+        private async Task<ExplorationResult> GetFileExplorationResultAsync(DirectoryExplorationRequest dir)
+        {
+            var fileClient = fileSystemClient.GetFileClient(dir.StartPath);
+            var aclResult = await fileClient.GetAccessControlAsync();
+            var directoryProps = await fileClient.GetPropertiesAsync();
+            var result = new ExplorationResult
+            {
+                Type = InspectionResultType.Directory,
+                Path = dir.StartPath,
+                Acls = JsonConvert.SerializeObject(aclResult.Value.AccessControlList),
+                RequestId = dir.RequestId,
+                ETag = directoryProps.Value.ETag.ToString(),
+                ModifiedDateTime = directoryProps.Value.LastModified.ToString(),
+                Depth = dir.CurrentDepth
+            };
+            return result;
+        }
+
         private async Task QueueDirAclRequestAsync(DirectoryExplorationRequest dir)
         {
             EventDataBatch dirAclEventBatch = await dirAclClient.CreateBatchAsync();
@@ -367,7 +408,7 @@ namespace YellowSubmarine
                 command.CommandType = CommandType.StoredProcedure;
                 command.Connection = connection;
                 command.CommandText = "UpsertLog";
-                command.Parameters.Add("@PathHash", SqlDbType.NVarChar).Value = await CalculateHashPathAsync(dir); ;
+                command.Parameters.Add("@PathHash", SqlDbType.NVarChar).Value = CalculateHashPath(dir.RequestId, dir.StartPath); 
                 command.Parameters.Add("@RequestId", SqlDbType.NVarChar).Value = dir.RequestId;
                 command.Parameters.Add("@Path", SqlDbType.NVarChar).Value= dir.StartPath;
                 command.Parameters.Add("@ResultType", SqlDbType.NVarChar).Value = "ResultType";
@@ -377,9 +418,29 @@ namespace YellowSubmarine
             }
         }
 
-        private async Task<string> CalculateHashPathAsync(DirectoryExplorationRequest dir)
+        private async Task UpsertResults(ExplorationResult er)
         {
-            string requestIdPath = dir.RequestId + dir.StartPath;
+            using (SqlConnection connection = new SqlConnection(sqlConnectionString))
+            {
+                connection.Open();
+                SqlCommand command = connection.CreateCommand();
+                command.CommandType = CommandType.StoredProcedure;
+                command.Connection = connection;
+                command.CommandText = "UpsertLog";
+                command.Parameters.Add("@PathHash", SqlDbType.NVarChar).Value = CalculateHashPath(er.RequestId, er.Path);
+                command.Parameters.Add("@RequestId", SqlDbType.NVarChar).Value = er.RequestId;
+                command.Parameters.Add("@Path", SqlDbType.NVarChar).Value = er.Path;
+                command.Parameters.Add("@ResultType", SqlDbType.NVarChar).Value = er.Type.ToString();
+                command.Parameters.Add("@Acls", SqlDbType.NVarChar).Value = er.Acls;
+                command.Parameters.Add("@ETag", SqlDbType.NVarChar).Value = er.ETag;
+                await command.ExecuteNonQueryAsync();
+            }
+        }
+
+
+        private string CalculateHashPath(string requestId, string path)
+        {
+            string requestIdPath = requestId + path;
             byte[] requestIdPathBytes = Encoding.ASCII.GetBytes(requestIdPath);
             byte[] md5hash = null;
             using (var md5 = MD5.Create())
