@@ -25,6 +25,7 @@ using Azure.Messaging.EventHubs.Producer;
 using Azure.Messaging.EventHubs;
 using System.Data.SqlClient;
 using System.Data;
+using System.Security.Cryptography;
 
 namespace YellowSubmarine
 {
@@ -366,10 +367,26 @@ namespace YellowSubmarine
                 command.CommandType = CommandType.StoredProcedure;
                 command.Connection = connection;
                 command.CommandText = "UpsertLog";
+                command.Parameters.Add("@PathHash", SqlDbType.NVarChar).Value = await CalculateHashPathAsync(dir); ;
                 command.Parameters.Add("@RequestId", SqlDbType.NVarChar).Value = dir.RequestId;
                 command.Parameters.Add("@Path", SqlDbType.NVarChar).Value= dir.StartPath;
+                command.Parameters.Add("@ResultType", SqlDbType.NVarChar).Value = "ResultType";
+                command.Parameters.Add("@Acls", SqlDbType.NVarChar).Value = "Acls is currently hard-coded";
+                command.Parameters.Add("@ETag", SqlDbType.NVarChar).Value = "Etag is currently hard-coded";
                 await command.ExecuteNonQueryAsync();
             }
+        }
+
+        private async Task<string> CalculateHashPathAsync(DirectoryExplorationRequest dir)
+        {
+            string requestIdPath = dir.RequestId + dir.StartPath;
+            byte[] requestIdPathBytes = Encoding.ASCII.GetBytes(requestIdPath);
+            byte[] md5hash = null;
+            using (var md5 = MD5.Create())
+            {
+                    md5hash = md5.ComputeHash(requestIdPathBytes);
+            }
+            return Convert.ToBase64String(md5hash); 
         }
     }
 }
