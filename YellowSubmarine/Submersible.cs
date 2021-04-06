@@ -24,6 +24,7 @@ using Microsoft.Azure.Storage.Queue;
 using Azure.Messaging.EventHubs.Producer;
 using Azure.Messaging.EventHubs;
 using System.Data.SqlClient;
+using System.Data;
 
 namespace YellowSubmarine
 {
@@ -362,12 +363,11 @@ namespace YellowSubmarine
             {
                 connection.Open();
                 SqlCommand command = connection.CreateCommand();
+                command.CommandType = CommandType.StoredProcedure;
                 command.Connection = connection;
-                string insertClause = $"Insert into ProcessingLog (RequestId, Path, ProcessingDateTime";
-                string valuesClause = $" VALUES ('{dir.RequestId}', '{dir.StartPath}','{DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss.fff")}'";
-                insertClause += ") ";
-                valuesClause += ")";
-                command.CommandText = insertClause + valuesClause;
+                command.CommandText = "UpsertLog";
+                command.Parameters.Add("@RequestId", SqlDbType.NVarChar);
+                command.Parameters.Add("@Path", SqlDbType.NVarChar);
                 await command.ExecuteNonQueryAsync();
             }
         }
