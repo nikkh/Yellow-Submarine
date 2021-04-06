@@ -366,8 +366,8 @@ namespace YellowSubmarine
                 command.CommandType = CommandType.StoredProcedure;
                 command.Connection = connection;
                 command.CommandText = "UpsertLog";
-                command.Parameters.Add("@RequestId", SqlDbType.NVarChar);
-                command.Parameters.Add("@Path", SqlDbType.NVarChar);
+                command.Parameters.Add("@RequestId", SqlDbType.NVarChar).Value = dir.RequestId;
+                command.Parameters.Add("@Path", SqlDbType.NVarChar).Value= dir.StartPath;
                 await command.ExecuteNonQueryAsync();
             }
         }
