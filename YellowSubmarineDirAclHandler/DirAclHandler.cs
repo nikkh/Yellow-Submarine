@@ -21,17 +21,12 @@ namespace YellowSubmarineDirAclHandler
     {
         private readonly TelemetryClient telemetryClient;
         static readonly string drain = Environment.GetEnvironmentVariable("DRAIN").ToUpper();
-        static readonly string skipResults = Environment.GetEnvironmentVariable("SkipResults").ToUpper();
         static readonly Uri serviceUri = new Uri(Environment.GetEnvironmentVariable("DataLakeUri"));
         static readonly string fileSystemName = Environment.GetEnvironmentVariable("FileSystemName");
         static readonly string dataLakeSasToken = Environment.GetEnvironmentVariable("DataLakeSasToken");
 
         static readonly DataLakeServiceClient serviceClient = new DataLakeServiceClient(serviceUri, new AzureSasCredential(dataLakeSasToken));
         static readonly DataLakeFileSystemClient fileSystemClient = serviceClient.GetFileSystemClient(fileSystemName);
-
-        static readonly EventHubProducerClient inspectionResultClient = 
-            new EventHubProducerClient(Environment.GetEnvironmentVariable("ResultsEventHubFullConnectionString"), 
-                new EventHubProducerClientOptions {  RetryOptions = new EventHubsRetryOptions { MaximumRetries=0 } });
        
         readonly Metric eventHubBatchSize;
         readonly Metric eventHubBatchLatency;
@@ -59,7 +54,6 @@ namespace YellowSubmarineDirAclHandler
             eventHubBatchSize.TrackValue(events.Length);
             var exceptions = new List<Exception>();
             double totalLatency = 0;
-            EventDataBatch resultEventBatch = await inspectionResultClient.CreateBatchAsync();
             foreach (EventData eventData in events)
             {
                 try
@@ -69,22 +63,8 @@ namespace YellowSubmarineDirAclHandler
                     totalLatency += nowTimeUTC.Subtract(enqueuedTimeUtc).TotalMilliseconds;
                     string messageBody = Encoding.UTF8.GetString(eventData.EventBody.ToArray());
                     DirectoryExplorationRequest dir = JsonConvert.DeserializeObject<DirectoryExplorationRequest>(messageBody);
-                    telemetryClient.Context.GlobalProperties["RequestId"] = dir.RequestId;
-
-                    var directoryClient = fileSystemClient.GetDirectoryClient(dir.StartPath);
-                    var aclResult = await directoryClient.GetAccessControlAsync();
-                    var directoryProps = await directoryClient.GetPropertiesAsync();
-                    var directoryResult = new ExplorationResult {
-                        Type = InspectionResultType.Directory,
-                        Path = dir.StartPath,
-                        Acls = JsonConvert.SerializeObject(aclResult.Value.AccessControlList),
-                        RequestId = dir.RequestId,
-                        ETag = directoryProps.Value.ETag.ToString(),
-                        ModifiedDateTime = directoryProps.Value.LastModified.ToString(),
-                        Depth = dir.CurrentDepth
-                    };
-                    EventData dirEvent = new EventData(Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(directoryResult)));
-                    if (!resultEventBatch.TryAdd(dirEvent)) throw new Exception("Maximum batch size of event hub batch exceeded!");
+                    ExplorationResult er = await GetDirectoryExplorationResultAsync(dir);
+                    await Utils.UpsertResults(er);
                     messagesProcessed.TrackValue(1);
                     await Task.Yield();
                 }
@@ -95,10 +75,7 @@ namespace YellowSubmarineDirAclHandler
                     exceptions.Add(e);
                 }
             }
-            if ((resultEventBatch.Count > 0) && (skipResults != "TRUE"))
-            {
-                await inspectionResultClient.SendAsync(resultEventBatch);
-            }
+
             eventHubBatchLatency.TrackValue(totalLatency / events.Length / 1000);
 
             // Once processing of the batch is complete, if any messages in the batch failed processing throw an exception so that there is a record of the failure.
@@ -110,6 +87,23 @@ namespace YellowSubmarineDirAclHandler
                 throw exceptions.Single();
 
 
+        }
+        private async Task<ExplorationResult> GetDirectoryExplorationResultAsync(DirectoryExplorationRequest dir)
+        {
+            var client = fileSystemClient.GetDirectoryClient(dir.StartPath);
+            var aclResult = await client.GetAccessControlAsync();
+            var directoryProps = await client.GetPropertiesAsync();
+            var result = new ExplorationResult
+            {
+                Type = InspectionResultType.Directory,
+                Path = dir.StartPath,
+                Acls = JsonConvert.SerializeObject(aclResult.Value.AccessControlList),
+                RequestId = dir.RequestId,
+                ETag = directoryProps.Value.ETag.ToString(),
+                ModifiedDateTime = directoryProps.Value.LastModified.ToString(),
+                Depth = dir.CurrentDepth
+            };
+            return result;
         }
     }
 }

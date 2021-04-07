@@ -15,7 +15,7 @@ namespace YellowSubmarine.Common
         {
             using (SqlConnection connection = new SqlConnection(sqlConnectionString))
             {
-                connection.Open();
+                if (connection.State == ConnectionState.Closed) connection.Open();
                 SqlCommand command = connection.CreateCommand();
                 command.CommandType = CommandType.StoredProcedure;
                 command.Connection = connection;
@@ -49,16 +49,17 @@ namespace YellowSubmarine.Common
             using (SqlConnection connection = new SqlConnection(sqlConnectionString))
             {
                 connection.Open();
-                SqlCommand command = connection.CreateCommand();
-                command.CommandType = CommandType.StoredProcedure;
-                command.Connection = connection;
-                command.CommandText = "CheckPathHash";
-                command.Parameters.Add("@PathHash", SqlDbType.NVarChar).Value = CalculateHashPath(dir.RequestId, dir.StartPath);
-                int retval = await command.ExecuteNonQueryAsync();
-                if (retval > 0) result = true;
+                SqlCommand udf = new SqlCommand("SELECT [dbo].[ChkPathHash](@PathHash)", connection);
+                SqlParameter hash = new SqlParameter("@PathHash", SqlDbType.NVarChar)
+                {
+                    Value = CalculateHashPath(dir.RequestId, dir.StartPath)
+                };
+                udf.Parameters.Add(hash);
+                var res = await udf.ExecuteScalarAsync(); 
+                int resi = (int) res;
+                if (resi > 0) result = true;
             }
             return result;
         }
-
     }
 }

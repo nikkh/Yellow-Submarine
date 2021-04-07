@@ -64,7 +64,6 @@ namespace YellowSubmarineFileAclHandler
                     totalLatency += nowTimeUTC.Subtract(enqueuedTimeUtc).TotalMilliseconds;
                     string messageBody = Encoding.UTF8.GetString(eventData.EventBody.ToArray());
                     DirectoryExplorationRequest dir = JsonConvert.DeserializeObject<DirectoryExplorationRequest>(messageBody);
-
                     ExplorationResult er = await GetFileExplorationResultAsync(dir);
                     await Utils.UpsertResults(er);
                     messagesProcessed.TrackValue(1, dir.RequestId);

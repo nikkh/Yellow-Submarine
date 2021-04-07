@@ -43,11 +43,14 @@ namespace YellowSubmarine
         static readonly string requestsPath = Environment.GetEnvironmentVariable("RequestsHub");
         static readonly EventHubProducerClient inspectionRequestClient =
             new EventHubProducerClient(Environment.GetEnvironmentVariable("RequestsEventHubFullConnectionString"),
-                new EventHubProducerClientOptions { RetryOptions = new EventHubsRetryOptions { MaximumRetries = 0 } });
+                new EventHubProducerClientOptions { RetryOptions = new EventHubsRetryOptions { MaximumRetries = 3 } });
         static readonly EventHubProducerClient fileAclClient =
           new EventHubProducerClient(Environment.GetEnvironmentVariable("FileAclEventHubFullConnectionString"),
-              new EventHubProducerClientOptions { RetryOptions = new EventHubsRetryOptions { MaximumRetries = 0 } });
-        
+              new EventHubProducerClientOptions { RetryOptions = new EventHubsRetryOptions { MaximumRetries = 3 } });
+        static readonly EventHubProducerClient dirAclClient =
+           new EventHubProducerClient(Environment.GetEnvironmentVariable("DirAclEventHubFullConnectionString"),
+               new EventHubProducerClientOptions { RetryOptions = new EventHubsRetryOptions { MaximumRetries = 3 } });
+
         static Metric eventHubBatchSize;
         static Metric eventHubBatchLatency;
         static Metric functionInvocations;
@@ -152,12 +155,18 @@ namespace YellowSubmarine
 
         private async Task InspectDirectoryAsync(DirectoryExplorationRequest dir, ILogger log, ExecutionContext ec)
         {
-            
+            EventDataBatch requestEventBatch = await inspectionRequestClient.CreateBatchAsync();
+            EventDataBatch fileAclEventBatch = await fileAclClient.CreateBatchAsync();
+            EventDataBatch dirAclEventBatch = await dirAclClient.CreateBatchAsync();
+
             // If this is the first page for this directory we can store the results
             if (string.IsNullOrEmpty(dir.ContinuationToken))
             {
-                ExplorationResult er = await GetDirectoryExplorationResultAsync(dir);
-                await Utils.UpsertResults(er);
+                //ExplorationResult er = await GetDirectoryExplorationResultAsync(dir);
+                //await Utils.UpsertResults(er);
+                var messageString = JsonConvert.SerializeObject(dir);
+                EventData dirAclEvent = new EventData(Encoding.UTF8.GetBytes(messageString));
+                if (!dirAclEventBatch.TryAdd(dirAclEvent)) throw new Exception("Maximum batch size of event hub batch exceeded!");
                 directoriesProcessed.TrackValue(1, dir.RequestId);
             }
             else
@@ -191,8 +200,7 @@ namespace YellowSubmarine
             }
             string lastPathProcessed = "";
             string currentPageContinuation = "";
-            EventDataBatch requestEventBatch = await inspectionRequestClient.CreateBatchAsync();
-            EventDataBatch fileAclEventBatch = await fileAclClient.CreateBatchAsync();
+            
             await foreach (var page in pages)
             {
                 currentPage++;
@@ -210,7 +218,9 @@ namespace YellowSubmarine
                                     CurrentDepth = dir.CurrentDepth,
                                     ContinuationToken = null,
                                     PageNumber = 0,
-                                    LastPathProcessed = null
+                                    LastPathProcessed = null,
+                                    ETag = pathItem.ETag.ToString(),
+                                    ModifiedDateTime = pathItem.LastModified.UtcDateTime.ToString(),
                                 });
                         directoryEvent = new EventData(Encoding.UTF8.GetBytes(subdirectoryRequest));
                         if (!requestEventBatch.TryAdd(directoryEvent)) throw new Exception("Maximum batch size of event hub batch exceeded!");
@@ -246,6 +256,10 @@ namespace YellowSubmarine
             if (fileAclEventBatch.Count > 0) 
             {
                 await fileAclClient.SendAsync(fileAclEventBatch);
+            }
+            if (dirAclEventBatch.Count > 0)
+            {
+                await dirAclClient.SendAsync(dirAclEventBatch);
             }
 
             // if there is another page to come, place a record on queue to process it.
