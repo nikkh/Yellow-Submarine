@@ -5,8 +5,6 @@ VisualStudioVersion = 16.0.31105.61
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "YellowSubmarine", "YellowSubmarine\YellowSubmarine.csproj", "{831AC2AD-7A37-4E3D-ADF8-E4823C89EDEE}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "YellowSubmarineResultsProcessor", "YellowSubmarineResultsProcessor\YellowSubmarineResultsProcessor.csproj", "{4D4FB4FC-836D-44DE-987B-52F366154B6A}"
-EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "YellowSubmarine.Common", "YellowSubmarine.Common\YellowSubmarine.Common.csproj", "{97D57341-DB35-4E01-94D8-6A912E400F01}"
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "YellowSubmarineFileAclHandler", "YellowSubmarineFileAclHandler\YellowSubmarineFileAclHandler.csproj", "{B78D6734-9686-4697-A725-28F058D321FE}"
@@ -16,14 +14,8 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution 
 		Infra\Scripts\create_infra.sh = Infra\Scripts\create_infra.sh
 		.github\workflows\infra.yml = .github\workflows\infra.yml
 		.github\workflows\YellowSubmarine.yml = .github\workflows\YellowSubmarine.yml
-		.github\workflows\YellowSubmarineDirAclHandler.yml = .github\workflows\YellowSubmarineDirAclHandler.yml
 		.github\workflows\YellowSubmarineFileAclHandler.yml = .github\workflows\YellowSubmarineFileAclHandler.yml
-		.github\workflows\YellowSubmarineResultsProcessor.yml = .github\workflows\YellowSubmarineResultsProcessor.yml
 	EndProjectSection
-EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "YellowSubmarineDirAclHandler", "YellowSubmarineDirAclHandler\YellowSubmarineDirAclHandler.csproj", "{B50B62C9-D169-4953-B6BF-7E0194B64AD1}"
-EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Nautilus.Console", "Nautilus.Console\Nautilus.Console.csproj", "{02143E5F-D766-4E21-A40C-F765D745B49D}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -35,10 +27,6 @@ Global
 		{831AC2AD-7A37-4E3D-ADF8-E4823C89EDEE}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{831AC2AD-7A37-4E3D-ADF8-E4823C89EDEE}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{831AC2AD-7A37-4E3D-ADF8-E4823C89EDEE}.Release|Any CPU.Build.0 = Release|Any CPU
-		{4D4FB4FC-836D-44DE-987B-52F366154B6A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{4D4FB4FC-836D-44DE-987B-52F366154B6A}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{4D4FB4FC-836D-44DE-987B-52F366154B6A}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{4D4FB4FC-836D-44DE-987B-52F366154B6A}.Release|Any CPU.Build.0 = Release|Any CPU
 		{97D57341-DB35-4E01-94D8-6A912E400F01}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{97D57341-DB35-4E01-94D8-6A912E400F01}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{97D57341-DB35-4E01-94D8-6A912E400F01}.Release|Any CPU.ActiveCfg = Release|Any CPU
@@ -47,14 +35,6 @@ Global
 		{B78D6734-9686-4697-A725-28F058D321FE}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{B78D6734-9686-4697-A725-28F058D321FE}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{B78D6734-9686-4697-A725-28F058D321FE}.Release|Any CPU.Build.0 = Release|Any CPU
-		{B50B62C9-D169-4953-B6BF-7E0194B64AD1}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{B50B62C9-D169-4953-B6BF-7E0194B64AD1}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{B50B62C9-D169-4953-B6BF-7E0194B64AD1}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{B50B62C9-D169-4953-B6BF-7E0194B64AD1}.Release|Any CPU.Build.0 = Release|Any CPU
-		{02143E5F-D766-4E21-A40C-F765D745B49D}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{02143E5F-D766-4E21-A40C-F765D745B49D}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{02143E5F-D766-4E21-A40C-F765D745B49D}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{02143E5F-D766-4E21-A40C-F765D745B49D}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

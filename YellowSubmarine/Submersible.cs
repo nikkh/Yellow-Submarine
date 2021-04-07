@@ -31,42 +31,22 @@ namespace YellowSubmarine
 {
     public class Submersible
     {
-        
-        private static readonly CloudBlobClient blobClient = StorageAccount.NewFromConnectionString(Environment.GetEnvironmentVariable("OutputStorageConnection")).CreateCloudBlobClient();
-        private static readonly string sqlConnectionString = Environment.GetEnvironmentVariable("SQLConnectionString");
         private readonly TelemetryClient telemetryClient;
         static readonly string drain = Environment.GetEnvironmentVariable("DRAIN").ToUpper();
-
-        static readonly string skipFileAcls = Environment.GetEnvironmentVariable("SkipFileAcls").ToUpper();
-        static readonly string skipDirAcls = Environment.GetEnvironmentVariable("SkipDirAcls").ToUpper();
-        static readonly string logToSql = Environment.GetEnvironmentVariable("LogToSql").ToUpper();
-
-
         static readonly Uri serviceUri = new Uri(Environment.GetEnvironmentVariable("DataLakeUri"));
         static readonly string fileSystemName = Environment.GetEnvironmentVariable("FileSystemName");
         static readonly string dataLakeSasToken = Environment.GetEnvironmentVariable("DataLakeSasToken");
         static readonly string defaultPageSize = Environment.GetEnvironmentVariable("PageSize");
         readonly int pageSize;
-
         static readonly DataLakeServiceClient serviceClient = new DataLakeServiceClient(serviceUri, new AzureSasCredential(dataLakeSasToken));
         static readonly DataLakeFileSystemClient fileSystemClient = serviceClient.GetFileSystemClient(fileSystemName);
-       
         static readonly string requestsPath = Environment.GetEnvironmentVariable("RequestsHub");
-
-
-        
         static readonly EventHubProducerClient inspectionRequestClient =
             new EventHubProducerClient(Environment.GetEnvironmentVariable("RequestsEventHubFullConnectionString"),
                 new EventHubProducerClientOptions { RetryOptions = new EventHubsRetryOptions { MaximumRetries = 0 } });
-
-        static readonly EventHubProducerClient dirAclClient =
-           new EventHubProducerClient(Environment.GetEnvironmentVariable("DirAclEventHubFullConnectionString"),
-               new EventHubProducerClientOptions { RetryOptions = new EventHubsRetryOptions { MaximumRetries = 0 } });
-
         static readonly EventHubProducerClient fileAclClient =
           new EventHubProducerClient(Environment.GetEnvironmentVariable("FileAclEventHubFullConnectionString"),
               new EventHubProducerClientOptions { RetryOptions = new EventHubsRetryOptions { MaximumRetries = 0 } });
-
         
         static Metric eventHubBatchSize;
         static Metric eventHubBatchLatency;
@@ -76,48 +56,22 @@ namespace YellowSubmarine
         static Metric filesProcessed;
         static Metric targetDepthAchieved;
         static Metric continuationPages;
-
         static string requestId;
 
-        private static readonly string endpoint = Environment.GetEnvironmentVariable("CosmosEndPointUrl");
-        private static readonly string cosmosMaxThroughput = Environment.GetEnvironmentVariable("CosmosMaxThroughput");
-        private static readonly string authKey = Environment.GetEnvironmentVariable("CosmosAuthorizationKey");
-        private static readonly CosmosClient cosmosClient = new CosmosClient(endpoint, authKey);
-        private static readonly string cosmosDatabaseId = Environment.GetEnvironmentVariable("CosmosDatabaseId");
-        private static readonly string cosmosContainerId = Environment.GetEnvironmentVariable("CosmosContainerId");
-        private static readonly string useCosmos = Environment.GetEnvironmentVariable("UseCosmos");
-        private readonly bool cosmosRequired = false;
-        Container resultsCosmosContainer;
-        private Database cosmosDb;
-        readonly int maxThroughput;
-
-        
         public Submersible(TelemetryConfiguration telemetryConfig) 
         {
-            
             telemetryClient = new TelemetryClient(telemetryConfig);
             eventHubBatchSize = telemetryClient.GetMetric("Processor Event Batch Size");
             eventHubBatchLatency = telemetryClient.GetMetric("Processor Event Batch Latency");
             functionInvocations = telemetryClient.GetMetric("Processor Functions Invoked");
-
             messagesProcessed = telemetryClient.GetMetric("Processor Messages Processed", "RequestId");
             directoriesProcessed = telemetryClient.GetMetric("Processor Directories Processed", "RequestId");
             filesProcessed = telemetryClient.GetMetric("Processor Files Processed", "RequestId");
             targetDepthAchieved = telemetryClient.GetMetric("Processor Target Depth Achieved", "RequestId");
             continuationPages = telemetryClient.GetMetric("Processor Continuation Pages", "RequestId");
             if (!Int32.TryParse(defaultPageSize, out int ps)) pageSize = 2500; else pageSize = ps;
-            maxThroughput = 400;
-            if (!string.IsNullOrEmpty(cosmosMaxThroughput))
-            {
-                if (!int.TryParse(cosmosMaxThroughput, out int m)) maxThroughput = 400; else maxThroughput = m;
-            }
-            if (!string.IsNullOrEmpty(useCosmos))
-            {
-                if (useCosmos.ToUpper() == "TRUE") cosmosRequired = true;
-            }
         }
 
-        
         [FunctionName("Dive")]
         public async Task<IActionResult> Dive(
            [HttpTrigger(AuthorizationLevel.Function, "get", "post", Route = null)] HttpRequest req, ILogger log, ExecutionContext ec)
@@ -139,29 +93,13 @@ namespace YellowSubmarine
             telemetryClient.TrackEvent($"Directory Inspection was triggered by Http POST", new Dictionary<string, string>() { { "directory", startPath } });
             requestId = $"{Guid.NewGuid().ToString()}";
             string tMessage = $"A deep dive into data lake {serviceUri} was requested. Exploration will start at path {parameters.StartPath}.  The tracking Id for your results is {requestId}";
-            var outputContainer = blobClient.GetContainerReference(requestId);
-            await outputContainer.CreateIfNotExistsAsync();
-            log.LogDebug($"{ec.FunctionName}: Storage container {outputContainer.Uri} was created for results");
-            
-
-
-            if (cosmosRequired)
-            {
-                cosmosDb = await cosmosClient.CreateDatabaseIfNotExistsAsync(cosmosDatabaseId);
-                if (resultsCosmosContainer == null)
-                {
-                    ContainerProperties containerProperties = new ContainerProperties($"{cosmosContainerId}-{requestId}", partitionKeyPath: "/PartitionKey");
-                    resultsCosmosContainer = await cosmosDb.CreateContainerIfNotExistsAsync(containerProperties, ThroughputProperties.CreateAutoscaleThroughput(maxThroughput));
-                }
-                log.LogDebug($"{ec.FunctionName}: Cosmos Output is configured {resultsCosmosContainer.Id} was created for results in database {resultsCosmosContainer.Database.Id}");
-            }
-
-
             EventDataBatch inspectionRequestEventBatch = await inspectionRequestClient.CreateBatchAsync();
             var directoryEvent = new EventData(Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(
                     new DirectoryExplorationRequest { StartPath = startPath, RequestId = requestId, TargetDepth = targetDepth })));   
             if (!inspectionRequestEventBatch.TryAdd(directoryEvent)) throw new Exception("Maximum batch size of event hub batch exceeded!");
             await inspectionRequestClient.SendAsync(inspectionRequestEventBatch);
+            telemetryClient.TrackEvent("InspectionRunTriggered",
+                          new Dictionary<string, string> { { "path", startPath }, { "requestId", requestId }, { "targetDepth", targetDepth.ToString() } });
             return new OkObjectResult(tMessage);
         }
 
@@ -173,7 +111,6 @@ namespace YellowSubmarine
             {
                 return;
             }
-            
             double totalLatency = 0;
             var exceptions = new List<Exception>();
             eventHubBatchSize.TrackValue(events.Count());
@@ -188,9 +125,14 @@ namespace YellowSubmarine
                     var nowTimeUTC = DateTime.UtcNow;
                     totalLatency += nowTimeUTC.Subtract(enqueuedTimeUtc).TotalMilliseconds;
                     var dir = JsonConvert.DeserializeObject<DirectoryExplorationRequest>(messageBody);
+                    if (await Utils.AlreadyProcessedAsync(dir))
+                    {
+                        telemetryClient.TrackEvent("DuplicateRequest", 
+                            new Dictionary<string, string> { { "eventSequence", eventData.SequenceNumber.ToString()}, { "DirectoryExplorationRequest", messageBody } });
+                        continue;
+                    }
                     await InspectDirectoryAsync(dir, log, ec);
                     messagesProcessed.TrackValue(1, dir.RequestId);
-                    // if (logToSql == "TRUE") await LogToSql(dir);
                     await Task.Yield();
                 }
                 catch (Exception e)
@@ -199,13 +141,11 @@ namespace YellowSubmarine
                     exceptions.Add(e);
                 }
             }
-            
             eventHubBatchLatency.TrackValue(totalLatency / events.Length / 1000);
 
             // Once processing of the batch is complete, if any messages in the batch failed processing throw an exception so that there is a record of the failure.
             if (exceptions.Count > 1)
                 throw new AggregateException(exceptions);
-
             if (exceptions.Count == 1)
                 throw exceptions.Single();
         }
@@ -213,59 +153,55 @@ namespace YellowSubmarine
         private async Task InspectDirectoryAsync(DirectoryExplorationRequest dir, ILogger log, ExecutionContext ec)
         {
             
-            var directoryClient = fileSystemClient.GetDirectoryClient(dir.StartPath);
-            EventData directoryEvent;
-            int itemsOnThisPage = 0;
-
-            // If this is the first page for this directory we can queue arequest to get it's acls
+            // If this is the first page for this directory we can store the results
             if (string.IsNullOrEmpty(dir.ContinuationToken))
             {
-                await QueueDirAclRequestAsync(dir);
                 ExplorationResult er = await GetDirectoryExplorationResultAsync(dir);
-                await UpsertResults(er);
+                await Utils.UpsertResults(er);
+                directoriesProcessed.TrackValue(1, dir.RequestId);
             }
             else
             {
                 continuationPages.TrackValue(1, dir.RequestId);
             }
+            
             // if target depth has been reached, stop.
-            if (dir.CurrentDepth < dir.TargetDepth)
+            if (dir.CurrentDepth >= dir.TargetDepth) 
+            { 
+                targetDepthAchieved.TrackValue(1, dir.RequestId);
+                telemetryClient.TrackEvent("TargetDepthReached",
+                           new Dictionary<string, string> { { "path", dir.StartPath }, { "targetDepth", dir.TargetDepth.ToString() }, { "currentDepth", dir.CurrentDepth.ToString() } });
+                return;
+            }
+
+            // Set pointer to next page
+            var directoryClient = fileSystemClient.GetDirectoryClient(dir.StartPath);
+            EventData directoryEvent;
+            AsyncPageable<PathItem> pathItems = directoryClient.GetPathsAsync(false);
+            int i = 1;
+            int currentPage = dir.PageNumber;
+            IAsyncEnumerable<Page<PathItem>> pages;
+            if (string.IsNullOrEmpty(dir.ContinuationToken))
             {
-
-                AsyncPageable<PathItem> pathItems = directoryClient.GetPathsAsync(false);
-                int i = 1;
-                int currentPage = dir.PageNumber;
-               
-                IAsyncEnumerable<Page<PathItem>> pages;
-                if (string.IsNullOrEmpty(dir.ContinuationToken))
+                pages = pathItems.AsPages(null, pageSize);
+            }
+            else
+            { 
+                pages = pathItems.AsPages(dir.ContinuationToken, pageSize);
+            }
+            string lastPathProcessed = "";
+            string currentPageContinuation = "";
+            EventDataBatch requestEventBatch = await inspectionRequestClient.CreateBatchAsync();
+            EventDataBatch fileAclEventBatch = await fileAclClient.CreateBatchAsync();
+            await foreach (var page in pages)
+            {
+                currentPage++;
+                currentPageContinuation = page.ContinuationToken;
+                foreach (var pathItem in page.Values)
                 {
-                    log.LogDebug($"{ec.FunctionName}: directory {dir.StartPath}. No continuation token, current page {currentPage}. Requestid: {dir.RequestId}");
-                    pages = pathItems.AsPages(null, pageSize);
-                }
-                else
-                {
-                    log.LogDebug($"{ec.FunctionName}: directory {dir.StartPath}. Continuation token {dir.ContinuationToken}, current page {currentPage}. Requestid: {dir.RequestId}");
-                    pages = pathItems.AsPages(dir.ContinuationToken, pageSize);
-                }
-                string lastPathProcessed = "";
-
-
-                EventDataBatch requestEventBatch = await inspectionRequestClient.CreateBatchAsync();
-                EventDataBatch fileAclEventBatch = await fileAclClient.CreateBatchAsync();
-
-                string currentPageContinuation = "";
-                
-                await foreach (var page in pages)
-                {
-                    currentPage++;
-                    itemsOnThisPage = 0;
-                    currentPageContinuation = page.ContinuationToken;
-                    foreach (var pathItem in page.Values)
+                    if ((bool) pathItem.IsDirectory)
                     {
-                        itemsOnThisPage++;
-                        if ((bool)pathItem.IsDirectory)
-                        {
-                            var payload = JsonConvert.SerializeObject(
+                        var subdirectoryRequest = JsonConvert.SerializeObject(
                                 new DirectoryExplorationRequest
                                 {
                                     StartPath = pathItem.Name,
@@ -276,50 +212,44 @@ namespace YellowSubmarine
                                     PageNumber = 0,
                                     LastPathProcessed = null
                                 });
-                            directoryEvent = new EventData(Encoding.UTF8.GetBytes(payload)); 
-                            if (!requestEventBatch.TryAdd(directoryEvent)) throw new Exception("Maximum batch size of event hub batch exceeded!");
-                           
-                        }
-                        
-                        else
+                        directoryEvent = new EventData(Encoding.UTF8.GetBytes(subdirectoryRequest));
+                        if (!requestEventBatch.TryAdd(directoryEvent)) throw new Exception("Maximum batch size of event hub batch exceeded!");
+                    }
+                    else
+                    {
+                        var fileAclRequest = new DirectoryExplorationRequest
                         {
-                            var fileResult = new DirectoryExplorationRequest
-                            {
-                                CurrentDepth = dir.CurrentDepth,
-                                StartPath = pathItem.Name, 
-                                RequestId = dir.RequestId,
-                                ETag = pathItem.ETag.ToString(),
-                                ModifiedDateTime = pathItem.LastModified.UtcDateTime.ToString(),
-                                
-                            };
-                            var messageString = JsonConvert.SerializeObject(fileResult);
-                            EventData fileAclEvent = new EventData(Encoding.UTF8.GetBytes(messageString));
-                            if (!fileAclEventBatch.TryAdd(fileAclEvent)) throw new Exception("Maximum batch size of event hub batch exceeded!");
-                            filesProcessed.TrackValue(1, dir.RequestId);
-                            // the new way of doing it....
-                            ExplorationResult er = await GetFileExplorationResultAsync(dir);
-                            await UpsertResults(er);
-                        }
-                        i++;
-                        lastPathProcessed = pathItem.Name;
-                   }
-                   // We have processed this page and queued a request to process the next one - end execution
-                   break;
-                }
+                            CurrentDepth = dir.CurrentDepth,
+                            StartPath = pathItem.Name,
+                            RequestId = dir.RequestId,
+                            ETag = pathItem.ETag.ToString(),
+                            ModifiedDateTime = pathItem.LastModified.UtcDateTime.ToString(),
 
-                // if we get here we have processed a full page
-                if (requestEventBatch.Count > 0)
-                {
-                    await inspectionRequestClient.SendAsync(requestEventBatch);
+                        };
+                        var messageString = JsonConvert.SerializeObject(fileAclRequest);
+                        EventData fileAclEvent = new EventData(Encoding.UTF8.GetBytes(messageString));
+                        if (!fileAclEventBatch.TryAdd(fileAclEvent)) throw new Exception("Maximum batch size of event hub batch exceeded!");
+                        filesProcessed.TrackValue(1, dir.RequestId);
+                    }
+                    i++;
+                    lastPathProcessed = pathItem.Name;
                 }
-                
-                if ((fileAclEventBatch.Count > 0) && (skipFileAcls != "TRUE"))
-                {
-                  await fileAclClient.SendAsync(fileAclEventBatch);
-                }
+                // We have processed this page and queued a request to process the next one - end execution
+                break;
+            }
 
-                // if there is another page to come, place a record on queue to process it.
-                if (!string.IsNullOrEmpty(currentPageContinuation))
+            if (requestEventBatch.Count > 0)
+            {
+                await inspectionRequestClient.SendAsync(requestEventBatch);
+            }
+
+            if (fileAclEventBatch.Count > 0) 
+            {
+                await fileAclClient.SendAsync(fileAclEventBatch);
+            }
+
+            // if there is another page to come, place a record on queue to process it.
+            if (!string.IsNullOrEmpty(currentPageContinuation))
                 { 
                     EventDataBatch inspectionRequestEventBatch = await inspectionRequestClient.CreateBatchAsync();
                     directoryEvent = new EventData(Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(
@@ -331,24 +261,18 @@ namespace YellowSubmarine
                                 PageNumber = currentPage,
                                 TargetDepth = dir.TargetDepth,
                                 LastPathProcessed = lastPathProcessed
-
                             }
                             )));
                     if (!inspectionRequestEventBatch.TryAdd(directoryEvent)) throw new Exception("Maximum batch size of event hub batch exceeded!");
                     await inspectionRequestClient.SendAsync(inspectionRequestEventBatch);                   
                 }
-            }
-            else 
-            {
-                targetDepthAchieved.TrackValue(1, dir.RequestId);
-            }
         }
 
         private async Task<ExplorationResult> GetDirectoryExplorationResultAsync(DirectoryExplorationRequest dir)
         {
-            var directoryClient = fileSystemClient.GetDirectoryClient(dir.StartPath);
-            var aclResult = await directoryClient.GetAccessControlAsync();
-            var directoryProps = await directoryClient.GetPropertiesAsync();
+            var client = fileSystemClient.GetDirectoryClient(dir.StartPath);
+            var aclResult = await client.GetAccessControlAsync();
+            var directoryProps = await client.GetPropertiesAsync();
             var result = new ExplorationResult
             {
                 Type = InspectionResultType.Directory,
@@ -362,92 +286,7 @@ namespace YellowSubmarine
             return result;
         }
 
-        private async Task<ExplorationResult> GetFileExplorationResultAsync(DirectoryExplorationRequest dir)
-        {
-            var fileClient = fileSystemClient.GetFileClient(dir.StartPath);
-            var aclResult = await fileClient.GetAccessControlAsync();
-            var directoryProps = await fileClient.GetPropertiesAsync();
-            var result = new ExplorationResult
-            {
-                Type = InspectionResultType.Directory,
-                Path = dir.StartPath,
-                Acls = JsonConvert.SerializeObject(aclResult.Value.AccessControlList),
-                RequestId = dir.RequestId,
-                ETag = directoryProps.Value.ETag.ToString(),
-                ModifiedDateTime = directoryProps.Value.LastModified.ToString(),
-                Depth = dir.CurrentDepth
-            };
-            return result;
-        }
 
-        private async Task QueueDirAclRequestAsync(DirectoryExplorationRequest dir)
-        {
-            EventDataBatch dirAclEventBatch = await dirAclClient.CreateBatchAsync();
-            var directoryAclRequest = new DirectoryExplorationRequest()
-            {
-                StartPath = dir.StartPath,
-                RequestId = dir.RequestId,
-                CurrentDepth = dir.CurrentDepth
-            };
-            
-            directoriesProcessed.TrackValue(1, dir.RequestId);
-            if (skipDirAcls != "TRUE")
-            {
-                var directoryEvent = new EventData(Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(directoryAclRequest)));
-                if (!dirAclEventBatch.TryAdd(directoryEvent)) throw new Exception("Maximum batch size of event hub batch exceeded!");
-                await dirAclClient.SendAsync(dirAclEventBatch);
-            }
-        }
-
-        private async Task LogToSql(DirectoryExplorationRequest dir)
-        {
-            using (SqlConnection connection = new SqlConnection(sqlConnectionString))
-            {
-                connection.Open();
-                SqlCommand command = connection.CreateCommand();
-                command.CommandType = CommandType.StoredProcedure;
-                command.Connection = connection;
-                command.CommandText = "UpsertLog";
-                command.Parameters.Add("@PathHash", SqlDbType.NVarChar).Value = CalculateHashPath(dir.RequestId, dir.StartPath); 
-                command.Parameters.Add("@RequestId", SqlDbType.NVarChar).Value = dir.RequestId;
-                command.Parameters.Add("@Path", SqlDbType.NVarChar).Value= dir.StartPath;
-                command.Parameters.Add("@ResultType", SqlDbType.NVarChar).Value = "ResultType";
-                command.Parameters.Add("@Acls", SqlDbType.NVarChar).Value = "Acls is currently hard-coded";
-                command.Parameters.Add("@ETag", SqlDbType.NVarChar).Value = "Etag is currently hard-coded";
-                await command.ExecuteNonQueryAsync();
-            }
-        }
-
-        private async Task UpsertResults(ExplorationResult er)
-        {
-            using (SqlConnection connection = new SqlConnection(sqlConnectionString))
-            {
-                connection.Open();
-                SqlCommand command = connection.CreateCommand();
-                command.CommandType = CommandType.StoredProcedure;
-                command.Connection = connection;
-                command.CommandText = "UpsertLog";
-                command.Parameters.Add("@PathHash", SqlDbType.NVarChar).Value = CalculateHashPath(er.RequestId, er.Path);
-                command.Parameters.Add("@RequestId", SqlDbType.NVarChar).Value = er.RequestId;
-                command.Parameters.Add("@Path", SqlDbType.NVarChar).Value = er.Path;
-                command.Parameters.Add("@ResultType", SqlDbType.NVarChar).Value = er.Type.ToString();
-                command.Parameters.Add("@Acls", SqlDbType.NVarChar).Value = er.Acls;
-                command.Parameters.Add("@ETag", SqlDbType.NVarChar).Value = er.ETag;
-                await command.ExecuteNonQueryAsync();
-            }
-        }
-
-
-        private string CalculateHashPath(string requestId, string path)
-        {
-            string requestIdPath = requestId + path;
-            byte[] requestIdPathBytes = Encoding.ASCII.GetBytes(requestIdPath);
-            byte[] md5hash = null;
-            using (var md5 = MD5.Create())
-            {
-                    md5hash = md5.ComputeHash(requestIdPathBytes);
-            }
-            return Convert.ToBase64String(md5hash); 
-        }
+      
     }
 }
