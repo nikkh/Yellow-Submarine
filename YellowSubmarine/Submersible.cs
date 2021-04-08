@@ -130,12 +130,6 @@ namespace YellowSubmarine
                     var nowTimeUTC = DateTime.UtcNow;
                     totalLatency += nowTimeUTC.Subtract(enqueuedTimeUtc).TotalMilliseconds;
                     var dir = JsonConvert.DeserializeObject<DirectoryExplorationRequest>(messageBody);
-                    if (await Utils.AlreadyProcessedAsync(dir))
-                    {
-                        telemetryClient.TrackEvent("DuplicateRequest", 
-                            new Dictionary<string, string> { { "eventSequence", eventData.SequenceNumber.ToString()}, { "DirectoryExplorationRequest", messageBody } });
-                        continue;
-                    }
                     await InspectDirectoryAsync(dir, log, ec);
                     messagesProcessed.TrackValue(1, dir.RequestId);
                     await Task.Yield();
@@ -175,15 +169,6 @@ namespace YellowSubmarine
                 continuationPages.TrackValue(1, dir.RequestId);
             }
             
-            // if target depth has been reached, stop.
-            if (dir.CurrentDepth >= dir.TargetDepth) 
-            { 
-                targetDepthAchieved.TrackValue(1, dir.RequestId);
-                telemetryClient.TrackEvent("TargetDepthReached",
-                           new Dictionary<string, string> { { "path", dir.StartPath }, { "targetDepth", dir.TargetDepth.ToString() }, { "currentDepth", dir.CurrentDepth.ToString() } });
-                return;
-            }
-
             // Set pointer to next page
             var directoryClient = fileSystemClient.GetDirectoryClient(dir.StartPath);
             EventData directoryEvent;
