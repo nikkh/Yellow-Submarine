@@ -234,35 +234,7 @@ namespace YellowSubmarine
                 // We have processed this page and queued a request to process the next one - end execution
                 break;
             }
-            log.LogDebug($"{ec.FunctionName} directory {dir.StartPath} page {currentPage} contains {dirs} subdirectories and {files} files");
-            
-            // if there is another page to come, place a record on queue to process it.
-            if (!string.IsNullOrEmpty(currentPageContinuation))
-            {
-                directoryEvent = new EventData(Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(
-                        new DirectoryExplorationRequest
-                        {
-                            StartPath = dir.StartPath,
-                            RequestId = dir.RequestId,
-                            ContinuationToken = currentPageContinuation,
-                            PageNumber = currentPage,
-                            TargetDepth = dir.TargetDepth,
-                            LastPathProcessed = lastPathProcessed
-                        }
-                        )));
-                EventDataBatch nextPageBatch = await inspectionRequestClient.CreateBatchAsync();
-                if (!nextPageBatch.TryAdd(directoryEvent)) throw new Exception("Maximum batch size of event hub batch exceeded!");
-                if (nextPageBatch.Count > 0)
-                {
-                    log.LogDebug($"{ec.FunctionName} Directory {dir.StartPath}, page {currentPage}, Inspection Requests={nextPageBatch.Count} were sent");
-                    await inspectionRequestClient.SendAsync(nextPageBatch);
-                }
-                
-            }
-            else 
-            {
-                log.LogDebug($"{ec.FunctionName} Processing Complete for Directory {dir.StartPath}");
-            }
+
             if (requestEventBatch.Count > 0)
             {
                 log.LogDebug($"{ec.FunctionName} Directory {dir.StartPath}, page {currentPage}, Inspection Requests={requestEventBatch.Count}");
@@ -278,6 +250,34 @@ namespace YellowSubmarine
                 log.LogDebug($"{ec.FunctionName} Directory {dir.StartPath}, page {currentPage}, Dir Acl Requests={dirAclEventBatch.Count}");
                 await dirAclClient.SendAsync(dirAclEventBatch);
             }
+
+
+            log.LogDebug($"{ec.FunctionName} directory {dir.StartPath} page {currentPage} contains {dirs} subdirectories and {files} files");
+            
+            // if there is another page to come, place a record on queue to process it.
+            if (!string.IsNullOrEmpty(currentPageContinuation))
+            {
+                EventDataBatch inspectionRequestEventBatch = await inspectionRequestClient.CreateBatchAsync();
+                directoryEvent = new EventData(Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(
+                        new DirectoryExplorationRequest
+                        {
+                            StartPath = dir.StartPath,
+                            RequestId = dir.RequestId,
+                            ContinuationToken = currentPageContinuation,
+                            PageNumber = currentPage,
+                            TargetDepth = dir.TargetDepth,
+                            LastPathProcessed = lastPathProcessed
+                        }
+                        )));
+                if (!inspectionRequestEventBatch.TryAdd(directoryEvent)) throw new Exception("Maximum batch size of event hub batch exceeded!");
+                await inspectionRequestClient.SendAsync(inspectionRequestEventBatch);
+
+            }
+            else 
+            {
+                log.LogDebug($"{ec.FunctionName} Processing Complete for Directory {dir.StartPath}");
+            }
+          
         }     
     }
 }
