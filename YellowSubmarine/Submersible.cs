@@ -238,7 +238,6 @@ namespace YellowSubmarine
                             RequestId = dir.RequestId,
                             ETag = pathItem.ETag.ToString(),
                             ModifiedDateTime = pathItem.LastModified.UtcDateTime.ToString(),
-
                         };
                         var messageString = JsonConvert.SerializeObject(fileAclRequest);
                         EventData fileAclEvent = new EventData(Encoding.UTF8.GetBytes(messageString));
@@ -246,7 +245,6 @@ namespace YellowSubmarine
                         filesProcessed.TrackValue(1, dir.RequestId);
                     }
                     lastPathProcessed = pathItem.Name;
-                    
                 }
                 // We have processed this page and queued a request to process the next one - end execution
                 break;
@@ -267,8 +265,14 @@ namespace YellowSubmarine
                             LastPathProcessed = lastPathProcessed
                         }
                         )));
-                if (!requestEventBatch.TryAdd(directoryEvent)) throw new Exception("Maximum batch size of event hub batch exceeded!");
-                log.LogDebug($"{ec.FunctionName} Directory {dir.StartPath}, page {currentPage}, Next Page Request added to batch");
+                EventDataBatch nextPageBatch = await inspectionRequestClient.CreateBatchAsync();
+                if (!nextPageBatch.TryAdd(directoryEvent)) throw new Exception("Maximum batch size of event hub batch exceeded!");
+                if (nextPageBatch.Count > 0)
+                {
+                    log.LogDebug($"{ec.FunctionName} Directory {dir.StartPath}, page {currentPage}, Inspection Requests={nextPageBatch.Count} were sent");
+                    await inspectionRequestClient.SendAsync(nextPageBatch);
+                }
+                
             }
             else 
             {
