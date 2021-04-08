@@ -16,7 +16,7 @@
   "version": "2.0",
   "logging": {
     "LogLevel": {
-      "Default": "Information",
+      "Default": "Debug",
       "Microsoft": "Information",
       "Microsoft.Hosting.Lifetime": "Information"
     },

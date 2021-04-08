@@ -93,7 +93,7 @@ namespace YellowSubmarine
                 if (!int.TryParse(parameters.TargetDepth.ToString(), out int td)) targetDepth = int.MaxValue; else targetDepth = td;
             }
 
-            telemetryClient.TrackEvent($"Directory Inspection was triggered by Http POST", new Dictionary<string, string>() { { "directory", startPath } });
+            
             requestId = $"{Guid.NewGuid().ToString()}";
             string tMessage = $"A deep dive into data lake {serviceUri} was requested. Exploration will start at path {parameters.StartPath}.  The tracking Id for your results is {requestId}";
             EventDataBatch inspectionRequestEventBatch = await inspectionRequestClient.CreateBatchAsync();
@@ -112,11 +112,13 @@ namespace YellowSubmarine
             functionInvocations.TrackValue(1);
             if (drain == "TRUE")
             {
+                log.LogDebug($"Draining in progress!");
                 return;
             }
             double totalLatency = 0;
             var exceptions = new List<Exception>();
             eventHubBatchSize.TrackValue(events.Count());
+            log.LogDebug($"{ec.FunctionName} Processing a batch of {events.Count()} events");
             int j = 0;
             foreach (EventData eventData in events)
             {
@@ -168,6 +170,7 @@ namespace YellowSubmarine
                 EventData dirAclEvent = new EventData(Encoding.UTF8.GetBytes(messageString));
                 if (!dirAclEventBatch.TryAdd(dirAclEvent)) throw new Exception("Maximum batch size of event hub batch exceeded!");
                 directoriesProcessed.TrackValue(1, dir.RequestId);
+                log.LogDebug($"{ec.FunctionName} first page for directory {dir.StartPath} event queued for DirAcls to process");
             }
             else
             {
@@ -207,8 +210,10 @@ namespace YellowSubmarine
                 currentPageContinuation = page.ContinuationToken;
                 foreach (var pathItem in page.Values)
                 {
+                    int dirs = 0; int files = 0;
                     if ((bool) pathItem.IsDirectory)
                     {
+                        dirs++;
                         var subdirectoryRequest = JsonConvert.SerializeObject(
                                 new DirectoryExplorationRequest
                                 {
@@ -227,6 +232,7 @@ namespace YellowSubmarine
                     }
                     else
                     {
+                        files++;
                         var fileAclRequest = new DirectoryExplorationRequest
                         {
                             CurrentDepth = dir.CurrentDepth,
@@ -243,6 +249,7 @@ namespace YellowSubmarine
                     }
                     i++;
                     lastPathProcessed = pathItem.Name;
+                    log.LogDebug($"{ec.FunctionName} directory {pathItem.Name} contains {dirs} subdirectories and {files} files");
                 }
                 // We have processed this page and queued a request to process the next one - end execution
                 break;
