@@ -49,9 +49,11 @@ namespace YellowSubmarineDirAclHandler
             functionInvocations.TrackValue(1);
             if (drain == "TRUE")
             {
+                log.LogDebug($"Draining in progress!");
                 return;
             }
             eventHubBatchSize.TrackValue(events.Length);
+            log.LogDebug($"{ec.FunctionName}, {ec.InvocationId} Processing a batch of {events.Count()} events.");
             var exceptions = new List<Exception>();
             double totalLatency = 0;
             foreach (EventData eventData in events)
@@ -75,7 +77,7 @@ namespace YellowSubmarineDirAclHandler
                     exceptions.Add(e);
                 }
             }
-
+            log.LogDebug($"{ec.FunctionName}, {ec.InvocationId} Finished processing a batch of {events.Count()} events, #Exceptions={exceptions.Count}");
             eventHubBatchLatency.TrackValue(totalLatency / events.Length / 1000);
 
             // Once processing of the batch is complete, if any messages in the batch failed processing throw an exception so that there is a record of the failure.

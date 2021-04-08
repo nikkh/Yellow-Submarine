@@ -164,8 +164,6 @@ namespace YellowSubmarine
             // If this is the first page for this directory we can store the results
             if (string.IsNullOrEmpty(dir.ContinuationToken))
             {
-                //ExplorationResult er = await GetDirectoryExplorationResultAsync(dir);
-                //await Utils.UpsertResults(er);
                 var messageString = JsonConvert.SerializeObject(dir);
                 EventData dirAclEvent = new EventData(Encoding.UTF8.GetBytes(messageString));
                 if (!dirAclEventBatch.TryAdd(dirAclEvent)) throw new Exception("Maximum batch size of event hub batch exceeded!");
@@ -203,14 +201,14 @@ namespace YellowSubmarine
             }
             string lastPathProcessed = "";
             string currentPageContinuation = "";
-            
+            int dirs = 0; int files = 0;
             await foreach (var page in pages)
             {
                 currentPage++;
                 currentPageContinuation = page.ContinuationToken;
                 foreach (var pathItem in page.Values)
                 {
-                    int dirs = 0; int files = 0;
+                    
                     if ((bool) pathItem.IsDirectory)
                     {
                         dirs++;
@@ -249,65 +247,50 @@ namespace YellowSubmarine
                     }
                     i++;
                     lastPathProcessed = pathItem.Name;
-                    log.LogDebug($"{ec.FunctionName} directory {pathItem.Name} contains {dirs} subdirectories and {files} files");
+                    
                 }
                 // We have processed this page and queued a request to process the next one - end execution
                 break;
             }
-
+            log.LogDebug($"{ec.FunctionName} directory {dir.StartPath} page {currentPage} contains {dirs} subdirectories and {files} files");
+            
+            // if there is another page to come, place a record on queue to process it.
+            if (!string.IsNullOrEmpty(currentPageContinuation))
+            {
+                EventDataBatch inspectionRequestEventBatch = await inspectionRequestClient.CreateBatchAsync();
+                directoryEvent = new EventData(Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(
+                        new DirectoryExplorationRequest
+                        {
+                            StartPath = dir.StartPath,
+                            RequestId = dir.RequestId,
+                            ContinuationToken = currentPageContinuation,
+                            PageNumber = currentPage,
+                            TargetDepth = dir.TargetDepth,
+                            LastPathProcessed = lastPathProcessed
+                        }
+                        )));
+                if (!inspectionRequestEventBatch.TryAdd(directoryEvent)) throw new Exception("Maximum batch size of event hub batch exceeded!");
+                log.LogDebug($"{ec.FunctionName} Directory {dir.StartPath}, page {currentPage}, Next Page Request added to batch");
+            }
+            else 
+            {
+                log.LogDebug($"{ec.FunctionName} Processing Complete for Directory {dir.StartPath}");
+            }
             if (requestEventBatch.Count > 0)
             {
+                log.LogDebug($"{ec.FunctionName} Directory {dir.StartPath}, page {currentPage}, Inspection Requests={requestEventBatch.Count}");
                 await inspectionRequestClient.SendAsync(requestEventBatch);
             }
-
-            if (fileAclEventBatch.Count > 0) 
+            if (fileAclEventBatch.Count > 0)
             {
+                log.LogDebug($"{ec.FunctionName} Directory {dir.StartPath}, page {currentPage}, File Acl Requests={fileAclEventBatch.Count}");
                 await fileAclClient.SendAsync(fileAclEventBatch);
             }
             if (dirAclEventBatch.Count > 0)
             {
+                log.LogDebug($"{ec.FunctionName} Directory {dir.StartPath}, page {currentPage}, Dir Acl Requests={dirAclEventBatch.Count}");
                 await dirAclClient.SendAsync(dirAclEventBatch);
             }
-
-            // if there is another page to come, place a record on queue to process it.
-            if (!string.IsNullOrEmpty(currentPageContinuation))
-                { 
-                    EventDataBatch inspectionRequestEventBatch = await inspectionRequestClient.CreateBatchAsync();
-                    directoryEvent = new EventData(Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(
-                            new DirectoryExplorationRequest
-                            {
-                                StartPath = dir.StartPath,
-                                RequestId = dir.RequestId,
-                                ContinuationToken = currentPageContinuation,
-                                PageNumber = currentPage,
-                                TargetDepth = dir.TargetDepth,
-                                LastPathProcessed = lastPathProcessed
-                            }
-                            )));
-                    if (!inspectionRequestEventBatch.TryAdd(directoryEvent)) throw new Exception("Maximum batch size of event hub batch exceeded!");
-                    await inspectionRequestClient.SendAsync(inspectionRequestEventBatch);                   
-                }
-        }
-
-        private async Task<ExplorationResult> GetDirectoryExplorationResultAsync(DirectoryExplorationRequest dir)
-        {
-            var client = fileSystemClient.GetDirectoryClient(dir.StartPath);
-            var aclResult = await client.GetAccessControlAsync();
-            var directoryProps = await client.GetPropertiesAsync();
-            var result = new ExplorationResult
-            {
-                Type = InspectionResultType.Directory,
-                Path = dir.StartPath,
-                Acls = JsonConvert.SerializeObject(aclResult.Value.AccessControlList),
-                RequestId = dir.RequestId,
-                ETag = directoryProps.Value.ETag.ToString(),
-                ModifiedDateTime = directoryProps.Value.LastModified.ToString(),
-                Depth = dir.CurrentDepth
-            };
-            return result;
-        }
-
-
-      
+        }     
     }
 }
