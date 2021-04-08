@@ -188,7 +188,7 @@ namespace YellowSubmarine
             var directoryClient = fileSystemClient.GetDirectoryClient(dir.StartPath);
             EventData directoryEvent;
             AsyncPageable<PathItem> pathItems = directoryClient.GetPathsAsync(false);
-            int i = 1;
+
             int currentPage = dir.PageNumber;
             IAsyncEnumerable<Page<PathItem>> pages;
             if (string.IsNullOrEmpty(dir.ContinuationToken))
@@ -245,7 +245,6 @@ namespace YellowSubmarine
                         if (!fileAclEventBatch.TryAdd(fileAclEvent)) throw new Exception("Maximum batch size of event hub batch exceeded!");
                         filesProcessed.TrackValue(1, dir.RequestId);
                     }
-                    i++;
                     lastPathProcessed = pathItem.Name;
                     
                 }
@@ -257,7 +256,6 @@ namespace YellowSubmarine
             // if there is another page to come, place a record on queue to process it.
             if (!string.IsNullOrEmpty(currentPageContinuation))
             {
-                EventDataBatch inspectionRequestEventBatch = await inspectionRequestClient.CreateBatchAsync();
                 directoryEvent = new EventData(Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(
                         new DirectoryExplorationRequest
                         {
@@ -269,7 +267,7 @@ namespace YellowSubmarine
                             LastPathProcessed = lastPathProcessed
                         }
                         )));
-                if (!inspectionRequestEventBatch.TryAdd(directoryEvent)) throw new Exception("Maximum batch size of event hub batch exceeded!");
+                if (!requestEventBatch.TryAdd(directoryEvent)) throw new Exception("Maximum batch size of event hub batch exceeded!");
                 log.LogDebug($"{ec.FunctionName} Directory {dir.StartPath}, page {currentPage}, Next Page Request added to batch");
             }
             else 

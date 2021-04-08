@@ -93,16 +93,17 @@ namespace YellowSubmarineFileAclHandler
         {
             var client = fileSystemClient.GetFileClient(dir.StartPath);
             var aclResult = await client.GetAccessControlAsync();
-            var directoryProps = await client.GetPropertiesAsync();
+            var fileProps = await client.GetPropertiesAsync();
             var result = new ExplorationResult
             {
                 Type = InspectionResultType.File,
                 Path = dir.StartPath,
                 Acls = JsonConvert.SerializeObject(aclResult.Value.AccessControlList),
                 RequestId = dir.RequestId,
-                ETag = directoryProps.Value.ETag.ToString(),
-                ModifiedDateTime = directoryProps.Value.LastModified.ToString(),
-                Depth = dir.CurrentDepth
+                ETag = fileProps.Value.ETag.ToString(),
+                ModifiedDateTime = fileProps.Value.LastModified.ToString(),
+                Depth = dir.CurrentDepth,
+                ContentLength = fileProps.Value.ContentLength
             };
             return result;
         }

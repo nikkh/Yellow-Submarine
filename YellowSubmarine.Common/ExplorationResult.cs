@@ -27,6 +27,7 @@ namespace YellowSubmarine.Common
         public string ETag { get; set; }
         public string ModifiedDateTime { get; set; }
         public int Depth { get; set; }
+        public long ContentLength { get; set; }
 
         public string ToCsv()
         {
