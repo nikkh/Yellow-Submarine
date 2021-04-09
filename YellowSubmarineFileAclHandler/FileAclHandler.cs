@@ -32,6 +32,7 @@ namespace YellowSubmarineFileAclHandler
         readonly Metric eventHubBatchLatency;
         readonly Metric functionInvocations;
         readonly Metric messagesProcessed;
+        readonly Metric exceptionsDetected;
 
 
         public FileAclHandler(TelemetryConfiguration telemetryConfig)
@@ -41,6 +42,7 @@ namespace YellowSubmarineFileAclHandler
             eventHubBatchSize = telemetryClient.GetMetric("New FileAcl Event Batch Size");
             functionInvocations = telemetryClient.GetMetric("New FileAcl Functions Invoked");
             messagesProcessed = telemetryClient.GetMetric("New FileAcl Messages Processed", "RequestId");
+            exceptionsDetected = telemetryClient.GetMetric("New FileAcl Exceptions Detected", "RequestId");
         }
 
         [FunctionName("FileAclHandler")]
@@ -66,9 +68,17 @@ namespace YellowSubmarineFileAclHandler
                     totalLatency += nowTimeUTC.Subtract(enqueuedTimeUtc).TotalMilliseconds;
                     string messageBody = Encoding.UTF8.GetString(eventData.EventBody.ToArray());
                     DirectoryExplorationRequest dir = JsonConvert.DeserializeObject<DirectoryExplorationRequest>(messageBody);
-                    ExplorationResult er = await GetFileExplorationResultAsync(dir);
-                    await Utils.UpsertResults(er);
-                    messagesProcessed.TrackValue(1, dir.RequestId);
+                    try
+                    {
+                        ExplorationResult er = await GetFileExplorationResultAsync(dir);
+                        await Utils.UpsertResults(er);
+                        messagesProcessed.TrackValue(1, dir.RequestId);
+                    }
+                    catch (Exception e) 
+                    {
+                        exceptionsDetected.TrackValue(1, dir.RequestId);
+                        throw e;
+                    }
                     await Task.Yield();
                 }
                 catch (Exception e)
