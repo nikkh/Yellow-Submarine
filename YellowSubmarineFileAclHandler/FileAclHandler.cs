@@ -40,12 +40,12 @@ namespace YellowSubmarineFileAclHandler
         public FileAclHandler(TelemetryConfiguration telemetryConfig)
         {
             telemetryClient = new TelemetryClient(telemetryConfig);
-            eventHubBatchLatency = telemetryClient.GetMetric("New FileAcl Event Batch Latency");
-            eventHubBatchSize = telemetryClient.GetMetric("New FileAcl Event Batch Size");
-            functionInvocations = telemetryClient.GetMetric("New FileAcl Functions Invoked");
-            messagesProcessed = telemetryClient.GetMetric("New FileAcl Messages Processed", "RequestId");
-            exceptionsDetected = telemetryClient.GetMetric("New FileAcl Exceptions Detected", "RequestId");
-            primaryKeyExceptionsDetected = telemetryClient.GetMetric("New FileAcl Primary Key Exceptions Detected", "RequestId");
+            eventHubBatchLatency = telemetryClient.GetMetric("A-FileAcl-Event-Batch-Latency");
+            eventHubBatchSize = telemetryClient.GetMetric("A-FileAcl-Event-Batch-Size");
+            functionInvocations = telemetryClient.GetMetric("A-FileAcl-Functions-Invoked");
+            messagesProcessed = telemetryClient.GetMetric("A-FileAcl-Requests-Completed", "RequestId");
+            exceptionsDetected = telemetryClient.GetMetric("A-FileAcl-Exceptions-Detected", "RequestId");
+            primaryKeyExceptionsDetected = telemetryClient.GetMetric("A-FileAcl-Primary-Key-Exceptions-Detected", "RequestId");
         }
 
         [FunctionName("FileAclHandler")]

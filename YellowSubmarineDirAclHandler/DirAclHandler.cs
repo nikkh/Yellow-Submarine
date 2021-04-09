@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Data.SqlClient;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -32,15 +33,19 @@ namespace YellowSubmarineDirAclHandler
         readonly Metric eventHubBatchLatency;
         readonly Metric functionInvocations;
         readonly Metric messagesProcessed;
+        readonly Metric exceptionsDetected;
+        readonly Metric primaryKeyExceptionsDetected;
 
 
         public DirAclHandler(TelemetryConfiguration telemetryConfig)
         {
             telemetryClient = new TelemetryClient(telemetryConfig);
-            eventHubBatchLatency = telemetryClient.GetMetric("New DirAcl Event Batch Latency");
-            eventHubBatchSize = telemetryClient.GetMetric("New DirAcl Event Batch Size");
-            functionInvocations = telemetryClient.GetMetric("New DirAcl Functions Invoked");
-            messagesProcessed = telemetryClient.GetMetric("New DirAcl Messages Processed");
+            eventHubBatchLatency = telemetryClient.GetMetric("A-DirAcl-Event-Batch-Latency");
+            eventHubBatchSize = telemetryClient.GetMetric("A-DirAcl-Event-Batch-Size");
+            functionInvocations = telemetryClient.GetMetric("A-DirAcl-Functions-Invoked");
+            messagesProcessed = telemetryClient.GetMetric("A-DirAcl-Requests-Completed", "RequestId");
+            exceptionsDetected = telemetryClient.GetMetric("A-DirAcl-Exceptions-Detected", "RequestId");
+            primaryKeyExceptionsDetected = telemetryClient.GetMetric("A-DirAcl-Primary-Key-Exceptions-Detected", "RequestId");
         }
 
         [FunctionName("DirAclHandler")]
@@ -56,6 +61,7 @@ namespace YellowSubmarineDirAclHandler
             log.LogDebug($"{ec.FunctionName}, {ec.InvocationId} Processing a batch of {events.Count()} events.");
             var exceptions = new List<Exception>();
             double totalLatency = 0;
+            string requestId = null;
             foreach (EventData eventData in events)
             {
                 try
@@ -65,15 +71,29 @@ namespace YellowSubmarineDirAclHandler
                     totalLatency += nowTimeUTC.Subtract(enqueuedTimeUtc).TotalMilliseconds;
                     string messageBody = Encoding.UTF8.GetString(eventData.EventBody.ToArray());
                     DirectoryExplorationRequest dir = JsonConvert.DeserializeObject<DirectoryExplorationRequest>(messageBody);
-                    ExplorationResult er = await GetDirectoryExplorationResultAsync(dir);
-                    await Utils.UpsertResults(er);
-                    messagesProcessed.TrackValue(1);
+                    if (string.IsNullOrEmpty(requestId)) requestId = dir.RequestId;
+                    try
+                    {
+                        ExplorationResult er = await GetDirectoryExplorationResultAsync(dir);
+                        await Utils.UpsertResults(er);
+                        messagesProcessed.TrackValue(1, dir.RequestId);
+                    }
+                    catch (SqlException e)
+                    {
+                        if (e.Message.Contains("Violation of PRIMARY KEY constraint"))
+                        {
+                            primaryKeyExceptionsDetected.TrackValue(1, dir.RequestId);
+                        }
+                        else
+                        {
+                            throw e;
+                        }
+                    }
                     await Task.Yield();
                 }
                 catch (Exception e)
                 {
-                    // We need to keep processing the rest of the batch - capture this exception and continue.
-                    // Also, consider capturing details of the message that failed processing so it can be processed again later.
+                    exceptionsDetected.TrackValue(1, requestId);
                     exceptions.Add(e);
                 }
             }

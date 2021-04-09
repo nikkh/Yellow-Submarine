@@ -58,6 +58,7 @@ namespace YellowSubmarine
         static Metric directoriesProcessed;
         static Metric filesProcessed;
         static Metric filesSentToAclHandler;
+        static Metric dirSentToAclHandler;
         static Metric targetDepthAchieved;
         static Metric continuationPages;
         static string requestId;
@@ -65,15 +66,16 @@ namespace YellowSubmarine
         public Submersible(TelemetryConfiguration telemetryConfig) 
         {
             telemetryClient = new TelemetryClient(telemetryConfig);
-            eventHubBatchSize = telemetryClient.GetMetric("Processor Event Batch Size");
-            eventHubBatchLatency = telemetryClient.GetMetric("Processor Event Batch Latency");
-            functionInvocations = telemetryClient.GetMetric("Processor Functions Invoked");
-            messagesProcessed = telemetryClient.GetMetric("Processor Messages Processed", "RequestId");
-            directoriesProcessed = telemetryClient.GetMetric("Processor Directories Processed", "RequestId");
-            filesProcessed = telemetryClient.GetMetric("Processor Files Processed", "RequestId");
-            filesSentToAclHandler = telemetryClient.GetMetric("Processor Files Sent to Acl Handler", "RequestId");
-            targetDepthAchieved = telemetryClient.GetMetric("Processor Target Depth Achieved", "RequestId");
-            continuationPages = telemetryClient.GetMetric("Processor Continuation Pages", "RequestId");
+            eventHubBatchSize = telemetryClient.GetMetric("A-Proc-Event-Batch-Size");
+            eventHubBatchLatency = telemetryClient.GetMetric("A-Proc-Event-Batch-Latency");
+            functionInvocations = telemetryClient.GetMetric("A-Proc-Functions-Invoked");
+            messagesProcessed = telemetryClient.GetMetric("A-Proc-Messages-Processed", "RequestId");
+            directoriesProcessed = telemetryClient.GetMetric("A-Proc-Directories-Processed", "RequestId");
+            filesProcessed = telemetryClient.GetMetric("A-Proc-Files-Processed", "RequestId");
+            filesSentToAclHandler = telemetryClient.GetMetric("A-Proc-File-AclHandler-Requests-Submitted", "RequestId");
+            dirSentToAclHandler = telemetryClient.GetMetric("A-Proc-Dir-AclHandler-Requests-Submitted", "RequestId");
+            targetDepthAchieved = telemetryClient.GetMetric("A-Proc-Target-Depth-Achieved", "RequestId");
+            continuationPages = telemetryClient.GetMetric("A-Proc-Continuation-Pages", "RequestId");
             if (!Int32.TryParse(defaultPageSize, out int ps)) pageSize = 2500; else pageSize = ps;
         }
 
@@ -271,6 +273,7 @@ namespace YellowSubmarine
             if (dirAclEventBatch.Count > 0)
             {
                 log.LogDebug($"{ec.FunctionName} Directory {dir.StartPath}, page {currentPage}, Dir Acl Requests={dirAclEventBatch.Count}");
+                dirSentToAclHandler.TrackValue(fileAclEventBatch.Count, dir.RequestId);
                 await dirAclClient.SendAsync(dirAclEventBatch);
             }
 
