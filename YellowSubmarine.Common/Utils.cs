@@ -26,6 +26,7 @@ namespace YellowSubmarine.Common
                 command.Parameters.Add("@ResultType", SqlDbType.NVarChar).Value = er.Type.ToString();
                 command.Parameters.Add("@Acls", SqlDbType.NVarChar).Value = er.Acls;
                 command.Parameters.Add("@ETag", SqlDbType.NVarChar).Value = er.ETag;
+                command.Parameters.Add("@ContentLength", SqlDbType.BigInt).Value = er.ContentLength;
                 await command.ExecuteNonQueryAsync();
             }
         }
@@ -43,11 +44,16 @@ namespace YellowSubmarine.Common
             return Convert.ToBase64String(md5hash);
         }
 
+        private static string BuildPageRequestKey(string requestId, string path, int pageNumber) 
+        {
+            var pathHash = CalculateHashPath(requestId, path);
+            return $"{pathHash}::{pageNumber}";
+        }
 
         public static async Task<bool> PageAlreadyProcessedAsync(string requestId, string path, int pageNumber)
         {
             bool result = false;
-            string pageRequestKey = $"{requestId}::{path}::{pageNumber}";
+            string pageRequestKey = BuildPageRequestKey(requestId, path, pageNumber);
             using (SqlConnection connection = new SqlConnection(sqlConnectionString))
             {
                 connection.Open();
@@ -67,7 +73,7 @@ namespace YellowSubmarine.Common
 
         public static async Task LogPageCompletionAsync(string requestId, string path, int pageNumber)
         {
-            string pageRequestKey = $"{requestId}::{path}::{pageNumber}";
+            string pageRequestKey = BuildPageRequestKey(requestId, path, pageNumber);
             using (SqlConnection connection = new SqlConnection(sqlConnectionString))
             {
                 if (connection.State == ConnectionState.Closed) connection.Open();

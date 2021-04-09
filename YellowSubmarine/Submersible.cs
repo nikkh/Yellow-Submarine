@@ -196,7 +196,7 @@ namespace YellowSubmarine
                 // If so we just need to stop
                 if (await Utils.PageAlreadyProcessedAsync(dir.RequestId, dir.StartPath, currentPage))
                 {
-                    log.LogInformation($"Page {currentPage} has already been processed for request {dir.RequestId}.  Processing for this page will be aborted.");
+                    log.LogInformation($"Request: {dir.RequestId}, Path {dir.StartPath}, Page {currentPage} has already been processed.");
                     break;
                 }
                 // otherwise log it now to make sure
@@ -208,7 +208,7 @@ namespace YellowSubmarine
                     }
                     catch (SqlException e)
                     {
-                        log.LogInformation($"Unable to log page completion for {currentPage} for request {dir.RequestId}.  Processing for this page will be aborted.");
+                        log.LogInformation($"Unable to log completion for Request: {dir.RequestId}, Path {dir.StartPath}, Page {currentPage}. Processing aborted.");
                         break;
                     }
                 }
