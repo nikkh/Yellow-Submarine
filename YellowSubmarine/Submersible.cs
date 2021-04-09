@@ -194,7 +194,7 @@ namespace YellowSubmarine
                 currentPage++;
                 // check if this page has already been processed
                 // If so we just need to stop
-                if (await Utils.PageAlreadyProcessedAsync(dir.RequestId, currentPage))
+                if (await Utils.PageAlreadyProcessedAsync(dir.RequestId, dir.StartPath, currentPage))
                 {
                     log.LogInformation($"Page {currentPage} has already been processed for request {dir.RequestId}.  Processing for this page will be aborted.");
                     break;
@@ -204,7 +204,7 @@ namespace YellowSubmarine
                 {
                     try
                     {
-                        await Utils.LogPageCompletionAsync(dir.RequestId, currentPage);
+                        await Utils.LogPageCompletionAsync(dir.RequestId, dir.StartPath, currentPage);
                     }
                     catch (SqlException e)
                     {

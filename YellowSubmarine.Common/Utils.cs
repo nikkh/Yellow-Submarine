@@ -44,10 +44,10 @@ namespace YellowSubmarine.Common
         }
 
 
-        public static async Task<bool> PageAlreadyProcessedAsync(string requestId, int pageNumber)
+        public static async Task<bool> PageAlreadyProcessedAsync(string requestId, string path, int pageNumber)
         {
             bool result = false;
-            string pageRequestKey = requestId + pageNumber.ToString();
+            string pageRequestKey = $"{requestId}::{path}::{pageNumber}";
             using (SqlConnection connection = new SqlConnection(sqlConnectionString))
             {
                 connection.Open();
@@ -65,9 +65,9 @@ namespace YellowSubmarine.Common
 
         }
 
-        public static async Task LogPageCompletionAsync(string requestId, int pageNumber)
+        public static async Task LogPageCompletionAsync(string requestId, string path, int pageNumber)
         {
-            string pageRequestKey = requestId + pageNumber.ToString();
+            string pageRequestKey = $"{requestId}::{path}::{pageNumber}";
             using (SqlConnection connection = new SqlConnection(sqlConnectionString))
             {
                 if (connection.State == ConnectionState.Closed) connection.Open();
