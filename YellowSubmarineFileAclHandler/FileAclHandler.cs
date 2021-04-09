@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Data.SqlClient;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -33,6 +34,7 @@ namespace YellowSubmarineFileAclHandler
         readonly Metric functionInvocations;
         readonly Metric messagesProcessed;
         readonly Metric exceptionsDetected;
+        readonly Metric primaryKeyExceptionsDetected;
 
 
         public FileAclHandler(TelemetryConfiguration telemetryConfig)
@@ -43,6 +45,7 @@ namespace YellowSubmarineFileAclHandler
             functionInvocations = telemetryClient.GetMetric("New FileAcl Functions Invoked");
             messagesProcessed = telemetryClient.GetMetric("New FileAcl Messages Processed", "RequestId");
             exceptionsDetected = telemetryClient.GetMetric("New FileAcl Exceptions Detected", "RequestId");
+            primaryKeyExceptionsDetected = telemetryClient.GetMetric("New FileAcl Primary Key Exceptions Detected", "RequestId");
         }
 
         [FunctionName("FileAclHandler")]
@@ -59,6 +62,7 @@ namespace YellowSubmarineFileAclHandler
             log.LogDebug($"{ec.FunctionName}, {ec.InvocationId} Processing a batch of {events.Count()} events.");
             var exceptions = new List<Exception>();
             double totalLatency = 0;
+            string requestId=null;
             foreach (EventData eventData in events)
             {
                 try
@@ -68,21 +72,29 @@ namespace YellowSubmarineFileAclHandler
                     totalLatency += nowTimeUTC.Subtract(enqueuedTimeUtc).TotalMilliseconds;
                     string messageBody = Encoding.UTF8.GetString(eventData.EventBody.ToArray());
                     DirectoryExplorationRequest dir = JsonConvert.DeserializeObject<DirectoryExplorationRequest>(messageBody);
+                    if (string.IsNullOrEmpty(requestId)) requestId = dir.RequestId;
                     try
                     {
                         ExplorationResult er = await GetFileExplorationResultAsync(dir);
                         await Utils.UpsertResults(er);
                         messagesProcessed.TrackValue(1, dir.RequestId);
                     }
-                    catch (Exception e) 
+                    catch (SqlException e) 
                     {
-                        exceptionsDetected.TrackValue(1, dir.RequestId);
-                        throw e;
+                        if (e.Message.Contains("Violation of PRIMARY KEY constraint"))
+                        {
+                            primaryKeyExceptionsDetected.TrackValue(1, dir.RequestId);
+                        }
+                        else 
+                        {
+                            throw e;
+                        }
                     }
                     await Task.Yield();
                 }
                 catch (Exception e)
                 {
+                    exceptionsDetected.TrackValue(1, requestId);
                     exceptions.Add(e);
                 }
             }
