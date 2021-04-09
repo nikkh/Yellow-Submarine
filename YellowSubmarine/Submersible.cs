@@ -192,6 +192,26 @@ namespace YellowSubmarine
             await foreach (var page in pages)
             {
                 currentPage++;
+                // check if this page has already been processed
+                // If so we just need to stop
+                if (await Utils.PageAlreadyProcessedAsync(dir.RequestId, currentPage))
+                {
+                    log.LogInformation($"Page {currentPage} has already been processed for request {dir.RequestId}.  Processing for this page will be aborted.");
+                    break;
+                }
+                // otherwise log it now to make sure
+                else
+                {
+                    try
+                    {
+                        await Utils.LogPageCompletionAsync(dir.RequestId, currentPage);
+                    }
+                    catch (SqlException e)
+                    {
+                        log.LogInformation($"Unable to log page completion for {currentPage} for request {dir.RequestId}.  Processing for this page will be aborted.");
+                        break;
+                    }
+                }
                 currentPageContinuation = page.ContinuationToken;
                 foreach (var pathItem in page.Values)
                 {

@@ -43,6 +43,43 @@ namespace YellowSubmarine.Common
             return Convert.ToBase64String(md5hash);
         }
 
+
+        public static async Task<bool> PageAlreadyProcessedAsync(string requestId, int pageNumber)
+        {
+            bool result = false;
+            string pageRequestKey = requestId + pageNumber.ToString();
+            using (SqlConnection connection = new SqlConnection(sqlConnectionString))
+            {
+                connection.Open();
+                SqlCommand udf = new SqlCommand("SELECT [dbo].[ChkPage](@PageRequestKey)", connection);
+                SqlParameter requestKey = new SqlParameter("@PageRequestKey", SqlDbType.NVarChar)
+                {
+                    Value = pageRequestKey
+                };
+                udf.Parameters.Add(requestKey);
+                var res = await udf.ExecuteScalarAsync();
+                int resi = (int)res;
+                if (resi > 0) result = true;
+            }
+            return result;
+
+        }
+
+        public static async Task LogPageCompletionAsync(string requestId, int pageNumber)
+        {
+            string pageRequestKey = requestId + pageNumber.ToString();
+            using (SqlConnection connection = new SqlConnection(sqlConnectionString))
+            {
+                if (connection.State == ConnectionState.Closed) connection.Open();
+                SqlCommand command = connection.CreateCommand();
+                command.CommandType = CommandType.StoredProcedure;
+                command.Connection = connection;
+                command.CommandText = "LogPageCompletion";
+                command.Parameters.Add("@PageRequestKey", SqlDbType.NVarChar).Value = pageRequestKey;
+                await command.ExecuteNonQueryAsync();
+            }
+        }
+
         public static async Task<bool> AlreadyProcessedAsync(DirectoryExplorationRequest dir)
         {
             bool result = false;
