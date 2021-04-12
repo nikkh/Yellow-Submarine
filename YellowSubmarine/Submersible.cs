@@ -162,6 +162,12 @@ namespace YellowSubmarine
             // If this is the first page for this directory we can store the results
             if (string.IsNullOrEmpty(dir.ContinuationToken))
             {
+                if (dir.CurrentDepth >  dir.TargetDepth)
+                {
+                    telemetryClient.TrackEvent("TargetDepthAchieved",
+                        new Dictionary<string, string> { { "path", dir.StartPath }, { "requestId", requestId }, { "currentDepth", dir.CurrentDepth.ToString() }, { "targetDepth", dir.TargetDepth.ToString() } });
+                    return;
+                }
                 var messageString = JsonConvert.SerializeObject(dir);
                 EventData dirAclEvent = new EventData(Encoding.UTF8.GetBytes(messageString));
                 if (!dirAclEventBatch.TryAdd(dirAclEvent)) throw new Exception("Maximum batch size of event hub batch exceeded!");

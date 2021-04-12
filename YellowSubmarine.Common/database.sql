@@ -1,6 +1,11 @@
 /****** Object:  StoredProcedure [dbo].[UpsertLog]    Script Date: 05/04/2021 15:51:42 ******/
 SET ANSI_NULLS ON
 GO
+PRINT 'INACTIVE SCRIPT'
+RETURN
+select distinct(requestid) from ProcessingLog
+
+
 
 SET QUOTED_IDENTIFIER ON
 GO
@@ -41,7 +46,7 @@ SELECT [Id]
   select distinct(resulttype) from [dbo].[ProcessingLog]
 
 --truncate table [dbo].[ProcessingLog]
-
+--truncate table [dbo].[PageRequestRecord]
 CREATE PROCEDURE [dbo].[UpsertLog]  @PathHash NVARCHAR(50), @RequestId NVARCHAR(50), @Path NVARCHAR(1024), @ResultType nvarchar(10), @Acls nvarchar(max), @ETag nvarchar(20), @ContentLength bigint AS 
 SET NOCOUNT ON 
 
@@ -57,7 +62,7 @@ GO
 
 Insert into ProcessingLog (PathHash, RequestId, Path, ProcessingDateTime, NumberOfAttempts, ResultType, Acls, ETag)  VALUES ('pathhash', 'manual', 'parent32/0000_Depth31_Branch1','2021-04-03 15:12:53.424', 4, 'FILE', 'this is the acls', 'ETag')
 
-delete from ProcessingLog where requestid='5214b7e1-5491-4432-a24c-e3ccd0fdb62f'
+delete from ProcessingLog where requestid='manual'
 
 
 DECLARE	@return_value int
@@ -73,12 +78,23 @@ EXEC	@return_value = [dbo].[UpsertLog]
 SELECT	'Return Value' = @return_value
 
 select * from ProcessingLog where PathHash='UWjAeF8Mq7OY4lQFS9ZKFw=='
-select  Top (20)* from ProcessingLog where requestid='5b84e540-a84d-491e-affe-b631263a7c5e'
-select max(path) from ProcessingLog where requestid='5b84e540-a84d-491e-affe-b631263a7c5e'
+select  Top (20)* from ProcessingLog where requestid='55df6613-1d7d-453c-ae01-e4ee4ba15fe5'
+select max(path) from ProcessingLog where requestid='55a628ee-a79f-4382-971b-c1858ffed2ac'
 
-select count(*) as [Count], min(ProcessingDateTime) as [Start], max(ProcessingDateTime) as [End], max(NumberOfAttempts) as [Max Attempts], sum(NumberOfAttempts) as [Total Attempts] 
+select requestid, [ResultType], count(*) as [Count], min(ProcessingDateTime) as [Start], max(ProcessingDateTime) as [End], max(NumberOfAttempts) as [Max Attempts], 
+sum(NumberOfAttempts) as [Total Attempts], DATEDIFF(minute, min(ProcessingDateTime), max(ProcessingDateTime)) AS 'Duration(Min)'  
 from ProcessingLog 
-where requestid='d28884ec-2185-466e-9543-ea43de10073b'
+where requestid='1b9809f8-b4e8-44e6-ac62-fb46dc31d32d' 
+group by requestid, [ResultType]
+-- 092ebe30-c87a-4210-939b-5a082425d3c9 parent1 test#1
+-- 9fcfdad1-0be1-4e3a-8c8a-b5b4763202ef parent32 test#1
+-- 55df6613-1d7d-453c-ae01-e4ee4ba15fe5 parent16 test#1
+-- 1fb35b57-5adf-40e6-8f9a-7b7ff8e29539 parent32 test#2
+-- 3748c132-f1fa-4d4a-973e-c20faaf71ae9 parent1 test#2
+-- b4df4d8b-b4a9-4d8c-a1c8-99e67b327db2 parent16 test#2
+-- 1b9809f8-b4e8-44e6-ac62-fb46dc31d32d parent32 test#3
+-- e499a7ca-6673-460e-9698-d65d6b2a60ed parent1 test#3
+-- 03031b7d-61b0-40f7-a9f3-79f1eb4e6708 parent16 test#3
 
 select distinct(requestid) from ProcessingLog
 /****** Object:  Table [dbo].[ProcessingLog1]    Script Date: 05/04/2021 16:57:51 ******/
